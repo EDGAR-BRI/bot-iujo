@@ -7,7 +7,9 @@ import {
   Bell,
   Bot,
   CheckCircle2,
+  ClipboardPaste,
   ExternalLink,
+  ImagePlus,
   Megaphone,
   Radio,
   RefreshCw,
@@ -15,6 +17,8 @@ import {
   Settings,
   ShieldAlert,
   Sparkles,
+  Trash2,
+  Upload,
   Users,
 } from 'lucide-react';
 import type {
@@ -39,6 +43,15 @@ interface BotStatusData {
     pending_update_count: number;
   };
 }
+
+const inputClasses =
+  'w-full min-h-[48px] rounded-[10px] border-[1.5px] border-slate-300 bg-white px-3.5 py-3 text-base text-slate-900 transition-colors focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-[#0b57d0]';
+
+const primaryBtnClasses =
+  'inline-flex min-h-[48px] items-center justify-center gap-2 rounded-[10px] bg-iujo-red px-5 py-3 text-base font-bold text-white shadow-sm transition-colors hover:bg-iujo-dark focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-[#0b57d0] disabled:cursor-not-allowed disabled:opacity-65';
+
+const secondaryBtnClasses =
+  'inline-flex min-h-[48px] items-center justify-center gap-2 rounded-[10px] border border-slate-300 bg-slate-100 px-4 py-2.5 text-sm font-semibold text-slate-900 transition-colors hover:bg-slate-200 focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-[#0b57d0] disabled:cursor-not-allowed disabled:opacity-60';
 
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<
@@ -73,6 +86,11 @@ export default function DashboardPage() {
   const [postTitle, setPostTitle] = useState('');
   const [postContent, setPostContent] = useState('');
   const [postLink, setPostLink] = useState('');
+  const [postImageFile, setPostImageFile] = useState<File | null>(null);
+  const [postImagePreview, setPostImagePreview] = useState<string | null>(null);
+  const [isDraggingImage, setIsDraggingImage] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [isSendingPost, setIsSendingPost] = useState(false);
   const [broadcastFeedback, setBroadcastFeedback] = useState<{
     type: 'success' | 'error';
@@ -94,6 +112,11 @@ export default function DashboardPage() {
   const [customizeSteps, setCustomizeSteps] = useState<
     { step: string; ok: boolean; detail?: string }[]
   >([]);
+  const [botPhotoFile, setBotPhotoFile] = useState<File | null>(null);
+  const [botPhotoPreview, setBotPhotoPreview] = useState<string | null>(null);
+  const [isDraggingBotPhoto, setIsDraggingBotPhoto] = useState(false);
+  const [botPhotoError, setBotPhotoError] = useState<string | null>(null);
+  const botPhotoInputRef = useRef<HTMLInputElement>(null);
   const [webhookUrlInput, setWebhookUrlInput] = useState('');
   const [webhookFeedback, setWebhookFeedback] = useState<string | null>(null);
 
@@ -205,12 +228,10 @@ export default function DashboardPage() {
     loadDashboard();
     loadQuakes();
 
-    // Poll every 12 seconds so new Telegram /start subscribers appear automatically
     const interval = setInterval(() => {
       loadDashboard(true);
     }, 12000);
 
-    // Check seismic feed every 90 seconds while dashboard is open
     const quakeInterval = setInterval(() => {
       loadQuakes();
     }, 90000);
@@ -220,6 +241,265 @@ export default function DashboardPage() {
       clearInterval(quakeInterval);
     };
   }, [loadDashboard, loadQuakes]);
+
+  const applyImageFile = useCallback(
+    (file: File | null, source: 'picker' | 'drop' | 'paste' = 'picker') => {
+      setImageError(null);
+      if (!file) {
+        setPostImageFile(null);
+        setPostImagePreview((prev) => {
+          if (prev) URL.revokeObjectURL(prev);
+          return null;
+        });
+        return;
+      }
+
+      const validTypes = ['image/jpeg', 'image/png', 'image/webp'];
+      if (!validTypes.includes(file.type) && !file.type.startsWith('image/')) {
+        setImageError('Formato no soportado. Usa una imagen JPG, PNG o WEBP.');
+        return;
+      }
+
+      if (file.size > 10 * 1024 * 1024) {
+        setImageError('La imagen supera el límite máximo permitido de 10 MB.');
+        return;
+      }
+
+      let normalizedFile = file;
+      if (
+        source === 'paste' &&
+        (!file.name || file.name === 'image.png' || file.name === 'blob')
+      ) {
+        const ext = file.type.split('/')[1] || 'png';
+        const stamp = new Date().toISOString().slice(11, 19).replace(/:/g, '');
+        normalizedFile = new File([file], `imagen-pegada-${stamp}.${ext}`, {
+          type: file.type || 'image/png',
+        });
+      }
+
+      setPostImageFile(normalizedFile);
+      const objectUrl = URL.createObjectURL(normalizedFile);
+      setPostImagePreview((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return objectUrl;
+      });
+
+      if (fileInputRef.current && source !== 'picker') {
+        try {
+          const dt = new DataTransfer();
+          dt.items.add(normalizedFile);
+          fileInputRef.current.files = dt.files;
+        } catch {
+          // Ignore if browser restricts programmatic FileList assignment
+        }
+      }
+    },
+    []
+  );
+
+  // Convert any image (PNG/WEBP/JPG) into a square 640x640 JPEG required by Telegram setMyProfilePhoto
+  const convertImageToSquareJpeg = useCallback(async (file: File, baseName: string): Promise<File> => {
+    return new Promise((resolve) => {
+      const objectUrl = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        URL.revokeObjectURL(objectUrl);
+        const size = 640;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(file);
+          return;
+        }
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, size, size);
+
+        // Center crop square
+        const minSide = Math.min(img.width, img.height);
+        const sx = (img.width - minSide) / 2;
+        const sy = (img.height - minSide) / 2;
+        ctx.drawImage(img, sx, sy, minSide, minSide, 0, 0, size, size);
+
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) {
+              resolve(file);
+              return;
+            }
+            const cleanName = baseName.replace(/\.[^.]+$/, '') + '.jpg';
+            resolve(new File([blob], cleanName, { type: 'image/jpeg' }));
+          },
+          'image/jpeg',
+          0.92
+        );
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        resolve(file);
+      };
+      img.src = objectUrl;
+    });
+  }, []);
+
+  const applyBotPhotoFile = useCallback(
+    async (file: File | null, source: 'picker' | 'drop' | 'paste' = 'picker') => {
+      setBotPhotoError(null);
+      if (!file) {
+        setBotPhotoFile(null);
+        setBotPhotoPreview((prev) => {
+          if (prev) URL.revokeObjectURL(prev);
+          return null;
+        });
+        return;
+      }
+
+      const validTypes = ['image/jpeg', 'image/png', 'image/webp'];
+      if (!validTypes.includes(file.type) && !file.type.startsWith('image/')) {
+        setBotPhotoError('Formato no soportado. Usa una imagen JPG, PNG o WEBP.');
+        return;
+      }
+
+      if (file.size > 10 * 1024 * 1024) {
+        setBotPhotoError('La imagen supera el límite máximo permitido de 10 MB.');
+        return;
+      }
+
+      const stamp = new Date().toISOString().slice(11, 19).replace(/:/g, '');
+      const rawName =
+        source === 'paste' && (!file.name || file.name === 'image.png' || file.name === 'blob')
+          ? `avatar-pegado-${stamp}.jpg`
+          : file.name || `avatar-bot-${stamp}.jpg`;
+
+      const jpegFile = await convertImageToSquareJpeg(file, rawName);
+      setBotPhotoFile(jpegFile);
+
+      const objectUrl = URL.createObjectURL(jpegFile);
+      setBotPhotoPreview((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return objectUrl;
+      });
+
+      if (botPhotoInputRef.current && source !== 'picker') {
+        try {
+          const dt = new DataTransfer();
+          dt.items.add(jpegFile);
+          botPhotoInputRef.current.files = dt.files;
+        } catch {
+          // Ignore if browser restricts programmatic FileList assignment
+        }
+      }
+    },
+    [convertImageToSquareJpeg]
+  );
+
+  // Allow pasting images with Ctrl+V / Cmd+V anywhere while on the broadcast or customize tab
+  useEffect(() => {
+    if (activeTab !== 'broadcast' && activeTab !== 'customize') return;
+
+    const handleGlobalPaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.kind === 'file' && item.type.startsWith('image/')) {
+          const pastedFile = item.getAsFile();
+          if (pastedFile) {
+            e.preventDefault();
+            if (activeTab === 'customize') {
+              void applyBotPhotoFile(pastedFile, 'paste');
+            } else {
+              applyImageFile(pastedFile, 'paste');
+            }
+            return;
+          }
+        }
+      }
+    };
+
+    window.addEventListener('paste', handleGlobalPaste);
+    return () => {
+      window.removeEventListener('paste', handleGlobalPaste);
+    };
+  }, [activeTab, applyImageFile, applyBotPhotoFile]);
+
+  function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0] || null;
+    applyImageFile(file, 'picker');
+  }
+
+  function handleDragOverImage(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isDraggingImage) {
+      setIsDraggingImage(true);
+    }
+  }
+
+  function handleDragLeaveImage(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      setIsDraggingImage(false);
+    }
+  }
+
+  function handleDropImage(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingImage(false);
+    const droppedFile = e.dataTransfer?.files?.[0] || null;
+    if (droppedFile) {
+      applyImageFile(droppedFile, 'drop');
+    }
+  }
+
+  async function handlePasteFromClipboardButton() {
+    setImageError(null);
+    if (!navigator.clipboard || !navigator.clipboard.read) {
+      setImageError(
+        'Tu navegador no permite leer el portapapeles con botón. Presiona Ctrl+V (o Cmd+V) directamente para pegar la imagen.'
+      );
+      return;
+    }
+    try {
+      const clipboardItems = await navigator.clipboard.read();
+      for (const item of clipboardItems) {
+        const imageType = item.types.find((t) => t.startsWith('image/'));
+        if (imageType) {
+          const blob = await item.getType(imageType);
+          const ext = imageType.split('/')[1] || 'png';
+          const stamp = new Date().toISOString().slice(11, 19).replace(/:/g, '');
+          const file = new File([blob], `imagen-pegada-${stamp}.${ext}`, {
+            type: imageType,
+          });
+          applyImageFile(file, 'paste');
+          return;
+        }
+      }
+      setImageError(
+        'No se encontró ninguna imagen en el portapapeles. Copia una imagen o captura de pantalla e inténtalo de nuevo.'
+      );
+    } catch {
+      setImageError(
+        'Para pegar sin permisos adicionales, presiona Ctrl+V (o Cmd+V) directamente en esta pantalla.'
+      );
+    }
+  }
+
+  function clearSelectedImage() {
+    setImageError(null);
+    setPostImageFile(null);
+    if (postImagePreview) {
+      URL.revokeObjectURL(postImagePreview);
+    }
+    setPostImagePreview(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  }
 
   async function handlePublishBroadcast(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -234,15 +514,18 @@ export default function DashboardPage() {
     setBroadcastFeedback(null);
 
     try {
+      const formData = new FormData();
+      formData.append('category', postCategory);
+      formData.append('title', postTitle);
+      formData.append('content', postContent);
+      formData.append('linkUrl', postLink);
+      if (postImageFile) {
+        formData.append('image', postImageFile);
+      }
+
       const res = await fetch('/api/broadcast', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          category: postCategory,
-          title: postTitle,
-          content: postContent,
-          linkUrl: postLink,
-        }),
+        body: formData,
       });
       const data = await res.json();
       if (!data.ok) {
@@ -253,11 +536,16 @@ export default function DashboardPage() {
       } else {
         setBroadcastFeedback({
           type: 'success',
-          text: `¡Publicación enviada con éxito a ${data.delivery.sentCount} de ${data.delivery.totalTargets} suscriptor(es) activos en Telegram!`,
+          text: `¡Publicación ${
+            postImageFile ? 'con imagen ' : ''
+          }enviada con éxito a ${data.delivery.sentCount} de ${
+            data.delivery.totalTargets
+          } suscriptor(es) activos en Telegram!`,
         });
         setPostTitle('');
         setPostContent('');
         setPostLink('');
+        clearSelectedImage();
         form.reset();
         await loadDashboard(true);
       }
@@ -341,19 +629,98 @@ export default function DashboardPage() {
     }
   }
 
+  function handleBotPhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0] || null;
+    void applyBotPhotoFile(file, 'picker');
+  }
+
+  function handleDragOverBotPhoto(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isDraggingBotPhoto) {
+      setIsDraggingBotPhoto(true);
+    }
+  }
+
+  function handleDragLeaveBotPhoto(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      setIsDraggingBotPhoto(false);
+    }
+  }
+
+  function handleDropBotPhoto(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingBotPhoto(false);
+    const droppedFile = e.dataTransfer?.files?.[0] || null;
+    if (droppedFile) {
+      void applyBotPhotoFile(droppedFile, 'drop');
+    }
+  }
+
+  async function handlePasteBotPhotoButton() {
+    setBotPhotoError(null);
+    if (!navigator.clipboard || !navigator.clipboard.read) {
+      setBotPhotoError(
+        'Tu navegador no permite leer el portapapeles con botón. Presiona Ctrl+V (o Cmd+V) directamente para pegar la imagen.'
+      );
+      return;
+    }
+    try {
+      const clipboardItems = await navigator.clipboard.read();
+      for (const item of clipboardItems) {
+        const imageType = item.types.find((t) => t.startsWith('image/'));
+        if (imageType) {
+          const blob = await item.getType(imageType);
+          const ext = imageType.split('/')[1] || 'png';
+          const stamp = new Date().toISOString().slice(11, 19).replace(/:/g, '');
+          const file = new File([blob], `avatar-pegado-${stamp}.${ext}`, {
+            type: imageType,
+          });
+          await applyBotPhotoFile(file, 'paste');
+          return;
+        }
+      }
+      setBotPhotoError(
+        'No se encontró ninguna imagen en el portapapeles. Copia una imagen o captura de pantalla e inténtalo de nuevo.'
+      );
+    } catch {
+      setBotPhotoError(
+        'Para pegar sin permisos adicionales, presiona Ctrl+V (o Cmd+V) directamente en esta pantalla.'
+      );
+    }
+  }
+
+  function clearSelectedBotPhoto() {
+    setBotPhotoError(null);
+    setBotPhotoFile(null);
+    if (botPhotoPreview) {
+      URL.revokeObjectURL(botPhotoPreview);
+    }
+    setBotPhotoPreview(null);
+    if (botPhotoInputRef.current) {
+      botPhotoInputRef.current.value = '';
+    }
+  }
+
   async function handleCustomizeBot(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setIsCustomizingBot(true);
     setCustomizeSteps([]);
     try {
+      const formData = new FormData();
+      formData.append('name', botProfile.name);
+      formData.append('shortDescription', botProfile.shortDescription);
+      formData.append('description', botProfile.description);
+      if (botPhotoFile) {
+        formData.append('photo', botPhotoFile);
+      }
+
       const res = await fetch('/api/bot/customize', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: botProfile.name,
-          shortDescription: botProfile.shortDescription,
-          description: botProfile.description,
-        }),
+        body: formData,
       });
       const data = await res.json();
       if (data.steps) {
@@ -396,31 +763,38 @@ export default function DashboardPage() {
   const botUsername = botStatus.bot?.username || botProfile.username;
 
   return (
-    <div className="app-container" ref={rootRef}>
+    <div className="mx-auto max-w-7xl px-5 pt-6 pb-14" ref={rootRef}>
       {/* Top Institutional Header */}
-      <header className="top-header">
-        <div className="brand-box">
+      <header className="mb-6 flex flex-wrap items-center justify-between gap-5 rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-red-900 px-7 py-5 text-white shadow-xl">
+        <div className="flex items-center gap-4">
           <img
             src="/iujo-logo.jpg"
             alt="Logo IUJO Extensión Barquisimeto - Fe y Alegría"
-            className="brand-logo"
+            className="h-16 w-16 shrink-0 rounded-full border-2 border-white bg-white object-cover"
             width={64}
             height={64}
           />
           <div>
-            <h1 className="brand-title">
+            <h1 className="text-xl font-extrabold tracking-tight sm:text-2xl">
               IUJO Extensión Barquisimeto — Centro de Notificaciones y Alerta Sísmica
             </h1>
-            <p className="brand-subtitle">
+            <p className="mt-1 text-sm text-slate-200">
               Instituto Universitario Jesús Obrero (Fe y Alegría) • Gestión de Bot de Telegram y Monitoreo Sísmico en Lara
             </p>
           </div>
         </div>
 
-        <div className="header-actions">
-          <div className="status-pill" aria-live="polite">
+        <div className="flex flex-wrap items-center gap-3">
+          <div
+            className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/10 px-3.5 py-2 text-xs font-semibold sm:text-sm"
+            aria-live="polite"
+          >
             <span
-              className={`status-dot ${botStatus.connected ? '' : 'offline'}`}
+              className={`h-2.5 w-2.5 rounded-full ${
+                botStatus.connected
+                  ? 'bg-green-500 shadow-[0_0_0_3px_rgba(34,197,94,0.25)]'
+                  : 'bg-red-500 shadow-[0_0_0_3px_rgba(239,68,68,0.25)]'
+              }`}
               aria-hidden="true"
             />
             {botStatus.connected
@@ -435,8 +809,7 @@ export default function DashboardPage() {
               href={`https://t.me/${botUsername}`}
               target="_blank"
               rel="noreferrer"
-              className="btn-secondary"
-              style={{ textDecoration: 'none' }}
+              className={secondaryBtnClasses}
             >
               <ExternalLink size={16} aria-hidden="true" />
               Abrir @{botUsername}
@@ -445,63 +818,74 @@ export default function DashboardPage() {
 
           <button
             type="button"
-            className="btn-secondary"
+            className={secondaryBtnClasses}
             onClick={() => {
               loadDashboard(false);
               loadQuakes();
             }}
             disabled={syncing}
           >
-            <RefreshCw size={16} aria-hidden="true" />
+            <RefreshCw
+              size={16}
+              className={syncing ? 'animate-spin' : ''}
+              aria-hidden="true"
+            />
             {syncing ? 'Sincronizando...' : 'Sincronizar ahora'}
           </button>
         </div>
       </header>
 
       {/* KPI Summary Cards */}
-      <section className="kpi-grid" aria-label="Métricas principales del sistema">
-        <div className="kpi-card highlight">
-          <span className="kpi-label">
-            <Users size={18} color="#d32f2f" aria-hidden="true" />
+      <section
+        className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4"
+        aria-label="Métricas principales del sistema"
+      >
+        <div className="flex flex-col gap-1.5 rounded-2xl border border-slate-200 border-l-[5px] border-l-iujo-red bg-white p-5 shadow-sm">
+          <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+            <Users size={18} className="text-iujo-red" aria-hidden="true" />
             Usuarios Suscritos Activos
           </span>
-          <span className="kpi-value">{activeSubscribersCount}</span>
-          <span className="kpi-footnote">
+          <span className="text-3xl font-extrabold text-slate-900">
+            {activeSubscribersCount}
+          </span>
+          <span className="text-xs text-slate-600">
             {subscribers.length} registrados en total (vía comando /start)
           </span>
         </div>
 
-        <div className="kpi-card">
-          <span className="kpi-label">
-            <Activity size={18} color="#d97706" aria-hidden="true" />
+        <div className="flex flex-col gap-1.5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+            <Activity size={18} className="text-amber-600" aria-hidden="true" />
             Alerta Sísmica Barquisimeto
           </span>
-          <span className="kpi-value">M ≥ {quakeConfig.minMagnitude.toFixed(1)}</span>
-          <span className="kpi-footnote">
+          <span className="text-3xl font-extrabold text-slate-900">
+            M ≥ {quakeConfig.minMagnitude.toFixed(1)}
+          </span>
+          <span className="text-xs text-slate-600">
             Radio: {quakeConfig.maxRadiusKm} km desde sede IUJO Barquisimeto
           </span>
         </div>
 
-        <div className="kpi-card">
-          <span className="kpi-label">
-            <Megaphone size={18} color="#0b57d0" aria-hidden="true" />
+        <div className="flex flex-col gap-1.5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+            <Megaphone size={18} className="text-blue-700" aria-hidden="true" />
             Boletines y Alertas Enviadas
           </span>
-          <span className="kpi-value">{posts.length}</span>
-          <span className="kpi-footnote">
+          <span className="text-3xl font-extrabold text-slate-900">{posts.length}</span>
+          <span className="text-xs text-slate-600">
             Noticias institucionales, avisos y reportes sísmicos
           </span>
         </div>
 
-        <div className="kpi-card">
-          <span className="kpi-label">
-            <Bot size={18} color="#188038" aria-hidden="true" />
+        <div className="flex flex-col gap-1.5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+            <Bot size={18} className="text-green-700" aria-hidden="true" />
             Modo de Recepción Telegram
           </span>
-          <span className="kpi-value" style={{ fontSize: '1.45rem' }}>
+          <span className="text-2xl font-extrabold text-slate-900">
             {botStatus.webhook?.url ? 'Webhook (Vercel)' : 'Polling Activo'}
           </span>
-          <span className="kpi-footnote">
+          <span className="text-xs text-slate-600">
             {botStatus.connected
               ? `ID: ${botStatus.bot?.id} • Listo para enviar`
               : botStatus.error || 'Verificando token en .env'}
@@ -510,67 +894,85 @@ export default function DashboardPage() {
       </section>
 
       {/* Navigation Tabs */}
-      <nav className="tabs-bar" aria-label="Secciones del panel">
-        <button
-          type="button"
-          className={`tab-btn ${activeTab === 'broadcast' ? 'active' : ''}`}
-          onClick={() => setActiveTab('broadcast')}
-        >
-          <Megaphone size={18} aria-hidden="true" />
-          Publicar Noticia / Alerta
-        </button>
-
-        <button
-          type="button"
-          className={`tab-btn ${activeTab === 'seismic' ? 'active' : ''}`}
-          onClick={() => setActiveTab('seismic')}
-        >
-          <Activity size={18} aria-hidden="true" />
-          Monitor Sísmico Barquisimeto (M ≥ {quakeConfig.minMagnitude.toFixed(1)})
-        </button>
-
-        <button
-          type="button"
-          className={`tab-btn ${activeTab === 'subscribers' ? 'active' : ''}`}
-          onClick={() => setActiveTab('subscribers')}
-        >
-          <Users size={18} aria-hidden="true" />
-          Usuarios Suscritos ({activeSubscribersCount})
-        </button>
-
-        <button
-          type="button"
-          className={`tab-btn ${activeTab === 'customize' ? 'active' : ''}`}
-          onClick={() => setActiveTab('customize')}
-        >
-          <Settings size={18} aria-hidden="true" />
-          Personalizar Bot y Despliegue Vercel
-        </button>
+      <nav
+        className="mb-6 flex flex-wrap gap-2 border-b border-slate-200 pb-3"
+        aria-label="Secciones del panel"
+      >
+        {(
+          [
+            {
+              id: 'broadcast',
+              label: 'Publicar Noticia / Alerta',
+              icon: <Megaphone size={18} aria-hidden="true" />,
+            },
+            {
+              id: 'seismic',
+              label: `Monitor Sísmico Barquisimeto (M ≥ ${quakeConfig.minMagnitude.toFixed(
+                1
+              )})`,
+              icon: <Activity size={18} aria-hidden="true" />,
+            },
+            {
+              id: 'subscribers',
+              label: `Usuarios Suscritos (${activeSubscribersCount})`,
+              icon: <Users size={18} aria-hidden="true" />,
+            },
+            {
+              id: 'customize',
+              label: 'Personalizar Bot y Despliegue Vercel',
+              icon: <Settings size={18} aria-hidden="true" />,
+            },
+          ] as const
+        ).map((tab) => {
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={`inline-flex min-h-[48px] items-center gap-2 rounded-[10px] px-4 py-2.5 text-sm font-semibold transition-all focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-[#0b57d0] ${
+                isActive
+                  ? 'bg-iujo-red text-white shadow-md shadow-red-600/25'
+                  : 'text-slate-600 hover:bg-slate-200 hover:text-slate-900'
+              }`}
+            >
+              {tab.icon}
+              {tab.label}
+            </button>
+          );
+        })}
       </nav>
 
       {/* TAB 1: PUBLISH NEWS OR ALERTS */}
       {activeTab === 'broadcast' && (
-        <div className="dashboard-grid">
-          <section className="card">
-            <h2 className="card-title">
-              <Send size={20} color="#d32f2f" aria-hidden="true" />
+        <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
+          <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm lg:col-span-7">
+            <h2 className="mb-1 flex items-center gap-2 text-lg font-bold text-slate-900">
+              <Send size={20} className="text-iujo-red" aria-hidden="true" />
               Enviar Noticia o Alerta a la Comunidad IUJO
             </h2>
-            <p className="card-desc">
+            <p className="mb-5 text-sm text-slate-600">
               Redacta un comunicado o alerta. Se enviará inmediatamente por Telegram a los{' '}
-              <strong>{activeSubscribersCount} usuario(s) suscritos</strong>.
+              <strong className="text-slate-900">
+                {activeSubscribersCount} usuario(s) suscritos
+              </strong>
+              .
             </p>
 
             {broadcastFeedback && (
               <div
-                className={`feedback-banner ${broadcastFeedback.type}`}
+                className={`mb-5 flex items-start gap-2.5 rounded-[10px] border p-3.5 text-sm font-medium ${
+                  broadcastFeedback.type === 'success'
+                    ? 'border-green-300 bg-green-50 text-green-900'
+                    : 'border-red-300 bg-red-50 text-red-900'
+                }`}
                 role="status"
                 aria-live="polite"
               >
                 {broadcastFeedback.type === 'success' ? (
-                  <CheckCircle2 size={20} aria-hidden="true" />
+                  <CheckCircle2 size={20} className="shrink-0" aria-hidden="true" />
                 ) : (
-                  <AlertTriangle size={20} aria-hidden="true" />
+                  <AlertTriangle size={20} className="shrink-0" aria-hidden="true" />
                 )}
                 <span>{broadcastFeedback.text}</span>
               </div>
@@ -582,52 +984,57 @@ export default function DashboardPage() {
               onSubmit={handlePublishBroadcast}
               noValidate
             >
-              <fieldset>
-                <legend>Tipo de Comunicado</legend>
-                <div className="radio-group">
-                  <label className="radio-option">
-                    <input
-                      type="radio"
-                      name="category"
-                      value="noticia"
-                      checked={postCategory === 'noticia'}
-                      onChange={() => setPostCategory('noticia')}
-                    />
-                    📢 Noticia
-                  </label>
-
-                  <label className="radio-option">
-                    <input
-                      type="radio"
-                      name="category"
-                      value="alerta"
-                      checked={postCategory === 'alerta'}
-                      onChange={() => setPostCategory('alerta')}
-                    />
-                    🚨 Alerta Urgente
-                  </label>
-
-                  <label className="radio-option">
-                    <input
-                      type="radio"
-                      name="category"
-                      value="academico"
-                      checked={postCategory === 'academico'}
-                      onChange={() => setPostCategory('academico')}
-                    />
-                    🎓 Académico
-                  </label>
+              <fieldset className="mb-5 rounded-[10px] border border-slate-200 p-4">
+                <legend className="px-2 text-sm font-bold text-slate-900">
+                  Tipo de Comunicado
+                </legend>
+                <div className="mt-1 grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+                  {(
+                    [
+                      { value: 'noticia', label: '📢 Noticia' },
+                      { value: 'alerta', label: '🚨 Alerta Urgente' },
+                      { value: 'academico', label: '🎓 Académico' },
+                    ] as const
+                  ).map((opt) => (
+                    <label
+                      key={opt.value}
+                      className={`flex min-h-[48px] cursor-pointer items-center gap-2.5 rounded-[10px] border-[1.5px] px-3.5 py-2.5 text-sm font-semibold transition-colors ${
+                        postCategory === opt.value
+                          ? 'border-iujo-red bg-iujo-soft text-iujo-dark'
+                          : 'border-slate-300 bg-white text-slate-800 hover:bg-slate-50'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="category"
+                        value={opt.value}
+                        checked={postCategory === opt.value}
+                        onChange={() => setPostCategory(opt.value)}
+                        className="h-4 w-4 accent-iujo-red"
+                      />
+                      {opt.label}
+                    </label>
+                  ))}
                 </div>
               </fieldset>
 
-              <fieldset>
-                <legend>Contenido del Mensaje</legend>
+              <fieldset className="mb-5 rounded-[10px] border border-slate-200 p-4">
+                <legend className="px-2 text-sm font-bold text-slate-900">
+                  Contenido del Mensaje
+                </legend>
 
-                <div className="form-group">
-                  <label htmlFor="post-title" className="field-label">
+                {/* Gestalt Proximity Rule: small margin between label/hint and input, larger margin (mb-6) between form groups */}
+                <div className="mb-6">
+                  <label
+                    htmlFor="post-title"
+                    className="mb-1 inline-block py-1 text-sm font-semibold text-slate-900"
+                  >
                     Título de la noticia o alerta (obligatorio)
                   </label>
-                  <span id="post-title-hint" className="field-hint">
+                  <span
+                    id="post-title-hint"
+                    className="mb-1.5 block text-xs text-slate-600"
+                  >
                     Escribe un titular claro (mínimo 5 caracteres, ej: &quot;Suspensión de actividades turno tarde&quot;).
                   </span>
                   <input
@@ -641,17 +1048,24 @@ export default function DashboardPage() {
                     onChange={(e) => setPostTitle(e.target.value)}
                     aria-describedby="post-title-hint"
                     enterKeyHint="next"
+                    className={inputClasses}
                   />
                   <div className="error-msg">
                     <span aria-hidden="true">❌ </span>Por favor ingresa un título de al menos 5 caracteres.
                   </div>
                 </div>
 
-                <div className="form-group">
-                  <label htmlFor="post-content" className="field-label">
+                <div className="mb-6">
+                  <label
+                    htmlFor="post-content"
+                    className="mb-1 inline-block py-1 text-sm font-semibold text-slate-900"
+                  >
                     Mensaje detallado (obligatorio)
                   </label>
-                  <span id="post-content-hint" className="field-hint">
+                  <span
+                    id="post-content-hint"
+                    className="mb-1.5 block text-xs text-slate-600"
+                  >
                     Describe los detalles completos que recibirán los estudiantes y el personal en Telegram.
                   </span>
                   <textarea
@@ -663,17 +1077,140 @@ export default function DashboardPage() {
                     value={postContent}
                     onChange={(e) => setPostContent(e.target.value)}
                     aria-describedby="post-content-hint"
+                    className={`${inputClasses} min-h-[120px] resize-y`}
                   />
                   <div className="error-msg">
                     <span aria-hidden="true">❌ </span>Escribe un mensaje con al menos 10 caracteres.
                   </div>
                 </div>
 
-                <div className="form-group">
-                  <label htmlFor="post-link" className="field-label">
+                <div className="mb-6">
+                  <label
+                    htmlFor="post-image"
+                    className="mb-1 inline-block py-1 text-sm font-semibold text-slate-900"
+                  >
+                    Imagen del comunicado o afiche (opcional)
+                  </label>
+                  <span
+                    id="post-image-hint"
+                    className="mb-2 block text-xs text-slate-600"
+                  >
+                    Arrastra y suelta una imagen aquí, pégala con{' '}
+                    <kbd className="rounded border border-slate-300 bg-slate-100 px-1.5 py-0.5 font-sans text-[11px] font-semibold text-slate-800">
+                      Ctrl+V
+                    </kbd>{' '}
+                    o selecciónala desde tu dispositivo (JPG, PNG o WEBP, máx. 10 MB).
+                  </span>
+
+                  <div
+                    onDragEnter={handleDragOverImage}
+                    onDragOver={handleDragOverImage}
+                    onDragLeave={handleDragLeaveImage}
+                    onDrop={handleDropImage}
+                    className={`rounded-xl border-2 border-dashed p-4 transition-colors ${
+                      isDraggingImage
+                        ? 'border-iujo-red bg-red-50/70'
+                        : 'border-slate-300 bg-slate-50/60 hover:border-slate-400'
+                    }`}
+                  >
+                    <div className="mb-3 flex items-center gap-3 text-xs text-slate-700">
+                      <span
+                        className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border ${
+                          isDraggingImage
+                            ? 'border-iujo-red bg-white text-iujo-red'
+                            : 'border-slate-200 bg-white text-slate-600'
+                        }`}
+                        aria-hidden="true"
+                      >
+                        <Upload size={18} />
+                      </span>
+                      <div>
+                        <p className="font-semibold text-slate-900">
+                          {isDraggingImage
+                            ? '¡Suelta la imagen aquí para adjuntarla!'
+                            : 'Arrastra y suelta tu imagen aquí o pégala con Ctrl+V'}
+                        </p>
+                        <p className="text-slate-600">
+                          También puedes usar los botones de abajo para elegir un archivo o pegar desde el portapapeles.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-3">
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        id="post-image"
+                        name="image"
+                        accept="image/jpeg,image/png,image/webp"
+                        onChange={handleImageChange}
+                        aria-describedby="post-image-hint"
+                        className="block flex-1 text-sm text-slate-700 file:mr-3 file:min-h-[48px] file:cursor-pointer file:rounded-[10px] file:border file:border-slate-300 file:bg-white file:px-4 file:py-2.5 file:text-sm file:font-semibold file:text-slate-900 hover:file:bg-slate-100 focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-[#0b57d0]"
+                      />
+                      <button
+                        type="button"
+                        onClick={handlePasteFromClipboardButton}
+                        className={secondaryBtnClasses}
+                      >
+                        <ClipboardPaste size={16} aria-hidden="true" />
+                        Pegar imagen
+                      </button>
+                    </div>
+                  </div>
+
+                  {imageError && (
+                    <div
+                      className="mt-2 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-900"
+                      role="status"
+                      aria-live="polite"
+                    >
+                      <AlertTriangle size={15} className="shrink-0" aria-hidden="true" />
+                      <span>{imageError}</span>
+                    </div>
+                  )}
+
+                  {postImagePreview && (
+                    <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      <div className="flex items-center gap-3">
+                        <img
+                          src={postImagePreview}
+                          alt="Vista previa de imagen seleccionada"
+                          className="h-14 w-14 rounded-lg border border-slate-300 object-cover"
+                        />
+                        <div className="text-xs">
+                          <div className="font-bold text-slate-900">
+                            {postImageFile?.name}
+                          </div>
+                          <div className="text-slate-600">
+                            {postImageFile
+                              ? `${(postImageFile.size / 1024).toFixed(1)} KB`
+                              : ''}
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={clearSelectedImage}
+                        className="inline-flex min-h-[48px] items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2 text-xs font-semibold text-red-800 hover:bg-red-100 focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-[#0b57d0]"
+                      >
+                        <Trash2 size={15} aria-hidden="true" />
+                        Quitar imagen
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="post-link"
+                    className="mb-1 inline-block py-1 text-sm font-semibold text-slate-900"
+                  >
                     Enlace adicional o circular oficial (opcional)
                   </label>
-                  <span id="post-link-hint" className="field-hint">
+                  <span
+                    id="post-link-hint"
+                    className="mb-1.5 block text-xs text-slate-600"
+                  >
                     Formato: https://... (opcional, para adjuntar enlace a comunicado o documento).
                   </span>
                   <input
@@ -687,6 +1224,7 @@ export default function DashboardPage() {
                     autoCapitalize="off"
                     spellCheck={false}
                     enterKeyHint="done"
+                    className={inputClasses}
                   />
                   <div className="error-msg">
                     <span aria-hidden="true">❌ </span>Ingresa una dirección URL válida que comience con https:// o http://.
@@ -696,7 +1234,7 @@ export default function DashboardPage() {
 
               <button
                 type="submit"
-                className="btn-primary"
+                className={primaryBtnClasses}
                 disabled={isSendingPost}
               >
                 <Send size={18} aria-hidden="true" />
@@ -708,97 +1246,100 @@ export default function DashboardPage() {
           </section>
 
           {/* Right column: Live Preview + Recent Broadcast History */}
-          <aside style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-            <section className="card">
-              <h2 className="card-title">
-                <Bell size={20} color="#0b57d0" aria-hidden="true" />
+          <aside className="flex flex-col gap-6 lg:col-span-5">
+            <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <h2 className="mb-1 flex items-center gap-2 text-lg font-bold text-slate-900">
+                <Bell size={20} className="text-blue-700" aria-hidden="true" />
                 Vista Previa en Telegram
               </h2>
-              <p className="card-desc">
+              <p className="mb-4 text-sm text-slate-600">
                 Así verán el mensaje los usuarios suscritos en su teléfono:
               </p>
 
-              <div
-                style={{
-                  background: '#1e293b',
-                  color: '#f8fafc',
-                  padding: '1.15rem',
-                  borderRadius: '12px',
-                  fontSize: '0.92rem',
-                  lineHeight: 1.55,
-                  whiteSpace: 'pre-wrap',
-                }}
-              >
-                <div style={{ fontWeight: 700, color: '#fca5a5', marginBottom: '0.5rem' }}>
+              <div className="whitespace-pre-wrap rounded-xl bg-slate-800 p-4 text-sm leading-relaxed text-slate-50">
+                {postImagePreview && (
+                  <div className="mb-3 overflow-hidden rounded-lg border border-slate-700">
+                    <img
+                      src={postImagePreview}
+                      alt="Imagen que se enviará por Telegram"
+                      className="max-h-56 w-full object-cover"
+                    />
+                  </div>
+                )}
+                <div className="mb-2 font-bold text-red-300">
                   {postCategory === 'alerta'
                     ? '🚨 ALERTA IMPORTANTE — IUJO BARQUISIMETO'
                     : postCategory === 'academico'
                     ? '🎓 AVISO ACADÉMICO — IUJO BARQUISIMETO'
                     : '📢 NOTICIA INSTITUCIONAL — IUJO BARQUISIMETO'}
                 </div>
-                <div style={{ fontWeight: 700, marginBottom: '0.5rem' }}>
+                <div className="mb-2 font-bold">
                   📌 {postTitle || 'Título de tu publicación...'}
                 </div>
-                <div style={{ color: '#e2e8f0', marginBottom: '0.65rem' }}>
-                  {postContent || 'Escribe el contenido para previsualizar el mensaje aquí...'}
+                <div className="mb-2.5 text-slate-200">
+                  {postContent ||
+                    'Escribe el contenido para previsualizar el mensaje aquí...'}
                 </div>
                 {postLink && (
-                  <div style={{ color: '#60a5fa', marginBottom: '0.5rem' }}>
+                  <div className="mb-2 text-blue-400">
                     🔗 Más información / Enlace oficial ({postLink})
                   </div>
                 )}
-                <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
+                <div className="text-xs text-slate-400">
                   🕒 Publicado ahora • Extensión Barquisimeto
                 </div>
               </div>
             </section>
 
-            <section className="card">
-              <h2 className="card-title">Historial de Envíos Recientes</h2>
-              <p className="card-desc">
+            <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <h2 className="mb-1 text-lg font-bold text-slate-900">
+                Historial de Envíos Recientes
+              </h2>
+              <p className="mb-4 text-sm text-slate-600">
                 Últimas noticias, alertas y reportes sísmicos transmitidos por el bot.
               </p>
 
               {posts.length === 0 ? (
-                <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                <p className="text-sm text-slate-600">
                   Aún no has enviado comunicados desde el panel.
                 </p>
               ) : (
-                <div className="post-list">
+                <div className="flex flex-col gap-3">
                   {posts.slice(0, 6).map((p) => (
-                    <article key={p.id} className="post-item">
-                      <div className="post-item-header">
-                        <span
-                          className={`badge ${
-                            p.category === 'alerta' || p.category === 'sismo'
-                              ? 'red'
-                              : p.category === 'academico'
-                              ? 'amber'
-                              : 'blue'
-                          }`}
-                        >
-                          {p.category.toUpperCase()}
-                        </span>
-                        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                    <article
+                      key={p.id}
+                      className="rounded-[10px] border border-slate-200 bg-slate-50 p-4"
+                    >
+                      <div className="mb-1.5 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ${
+                              p.category === 'alerta' || p.category === 'sismo'
+                                ? 'bg-red-100 text-red-900'
+                                : p.category === 'academico'
+                                ? 'bg-amber-100 text-amber-900'
+                                : 'bg-blue-100 text-blue-900'
+                            }`}
+                          >
+                            {p.category.toUpperCase()}
+                          </span>
+                          {p.hasImage && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-purple-100 px-2.5 py-0.5 text-xs font-bold text-purple-900">
+                              <ImagePlus size={12} aria-hidden="true" />
+                              Imagen
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-xs text-slate-600">
                           {new Intl.DateTimeFormat('es-VE', {
                             dateStyle: 'short',
                             timeStyle: 'short',
                           }).format(new Date(p.createdAt))}
                         </span>
                       </div>
-                      <div style={{ fontWeight: 700, marginBottom: '0.25rem' }}>
-                        {p.title}
-                      </div>
-                      <div
-                        style={{
-                          fontSize: '0.88rem',
-                          color: 'var(--text-muted)',
-                          marginBottom: '0.5rem',
-                        }}
-                      >
-                        {p.content}
-                      </div>
-                      <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#166534' }}>
+                      <div className="mb-1 font-bold text-slate-900">{p.title}</div>
+                      <div className="mb-2 text-sm text-slate-600">{p.content}</div>
+                      <div className="text-xs font-semibold text-green-800">
                         ✓ Entregado a {p.sentCount} suscriptor(es)
                       </div>
                     </article>
@@ -812,42 +1353,60 @@ export default function DashboardPage() {
 
       {/* TAB 2: SEISMIC MONITOR BARQUISIMETO */}
       {activeTab === 'seismic' && (
-        <div className="dashboard-grid">
-          <section className="card">
-            <h2 className="card-title">
-              <ShieldAlert size={22} color="#d32f2f" aria-hidden="true" />
+        <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
+          <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm lg:col-span-7">
+            <h2 className="mb-1 flex items-center gap-2 text-lg font-bold text-slate-900">
+              <ShieldAlert size={22} className="text-iujo-red" aria-hidden="true" />
               Configuración de Alerta Sísmica — Sede Barquisimeto
             </h2>
-            <p className="card-desc">
-              Monitoreo automático centrado en <strong>IUJO Extensión Barquisimeto</strong>{' '}
-              (Lat: <code>10.0647</code>, Lon: <code>-69.3570</code>, corredor de la{' '}
-              <strong>Falla de Boconó</strong>) combinando las redes sismológicas en tiempo real de{' '}
-              <strong>USGS (GeoJSON FDSN)</strong> y <strong>EMSC (SeismicPortal)</strong>.
+            <p className="mb-5 text-sm text-slate-600">
+              Monitoreo automático centrado en{' '}
+              <strong className="text-slate-900">IUJO Extensión Barquisimeto</strong> (Lat:{' '}
+              <code className="rounded bg-slate-100 px-1 py-0.5 text-xs">10.0647</code>, Lon:{' '}
+              <code className="rounded bg-slate-100 px-1 py-0.5 text-xs">-69.3570</code>,
+              corredor de la <strong className="text-slate-900">Falla de Boconó</strong>)
+              combinando las redes sismológicas en tiempo real de{' '}
+              <strong className="text-slate-900">USGS (GeoJSON FDSN)</strong> y{' '}
+              <strong className="text-slate-900">EMSC (SeismicPortal)</strong>.
             </p>
 
             {seismicFeedback && (
               <div
-                className={`feedback-banner ${seismicFeedback.type}`}
+                className={`mb-5 flex items-start gap-2.5 rounded-[10px] border p-3.5 text-sm font-medium ${
+                  seismicFeedback.type === 'success'
+                    ? 'border-green-300 bg-green-50 text-green-900'
+                    : seismicFeedback.type === 'error'
+                    ? 'border-red-300 bg-red-50 text-red-900'
+                    : 'border-blue-300 bg-blue-50 text-blue-900'
+                }`}
                 role="status"
                 aria-live="polite"
               >
-                <AlertTriangle size={20} aria-hidden="true" />
+                <AlertTriangle size={20} className="shrink-0" aria-hidden="true" />
                 <span>{seismicFeedback.text}</span>
               </div>
             )}
 
             <form action="/api/quakes" method="POST" onSubmit={handleSaveSeismicConfig}>
-              <fieldset>
-                <legend>Parámetros del Umbral Sísmico (Magnitud N)</legend>
+              <fieldset className="mb-5 rounded-[10px] border border-slate-200 p-4">
+                <legend className="px-2 text-sm font-bold text-slate-900">
+                  Parámetros del Umbral Sísmico (Magnitud N)
+                </legend>
 
-                <div className="form-group">
-                  <label htmlFor="min-mag-range" className="field-label">
+                <div className="mb-6">
+                  <label
+                    htmlFor="min-mag-range"
+                    className="mb-1 inline-block py-1 text-sm font-semibold text-slate-900"
+                  >
                     Magnitud mínima (N) para disparar alerta en Telegram
                   </label>
-                  <span id="min-mag-hint" className="field-hint">
+                  <span
+                    id="min-mag-hint"
+                    className="mb-2 block text-xs text-slate-600"
+                  >
                     Cuando se detecte un sismo con magnitud igual o mayor a N cerca de Barquisimeto, el bot enviará la alerta a todos los suscriptores.
                   </span>
-                  <div className="range-slider-row">
+                  <div className="flex items-center gap-4">
                     <input
                       type="range"
                       id="min-mag-range"
@@ -863,18 +1422,25 @@ export default function DashboardPage() {
                         }))
                       }
                       aria-describedby="min-mag-hint"
+                      className="h-2 flex-1 cursor-pointer accent-iujo-red"
                     />
-                    <span className="mag-display-pill">
+                    <span className="min-w-[96px] rounded-[10px] border-2 border-iujo-red bg-iujo-soft px-3.5 py-1.5 text-center text-xl font-extrabold text-iujo-dark">
                       M ≥ {quakeConfig.minMagnitude.toFixed(1)}
                     </span>
                   </div>
                 </div>
 
-                <div className="form-group">
-                  <label htmlFor="radius-km" className="field-label">
+                <div className="mb-6">
+                  <label
+                    htmlFor="radius-km"
+                    className="mb-1 inline-block py-1 text-sm font-semibold text-slate-900"
+                  >
                     Radio de cobertura desde Barquisimeto (km)
                   </label>
-                  <span id="radius-hint" className="field-hint">
+                  <span
+                    id="radius-hint"
+                    className="mb-1.5 block text-xs text-slate-600"
+                  >
                     Recomendado: 250 km (cubre Lara, Yaracuy, Portuguesa, Trujillo y Falla de Boconó).
                   </span>
                   <input
@@ -893,19 +1459,12 @@ export default function DashboardPage() {
                       }))
                     }
                     aria-describedby="radius-hint"
+                    className={inputClasses}
                   />
                 </div>
 
-                <div className="form-group">
-                  <label
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.65rem',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                    }}
-                  >
+                <div>
+                  <label className="flex cursor-pointer items-center gap-2.5 text-sm font-semibold text-slate-900">
                     <input
                       type="checkbox"
                       checked={quakeConfig.autoAlertTelegram}
@@ -915,7 +1474,7 @@ export default function DashboardPage() {
                           autoAlertTelegram: e.target.checked,
                         }))
                       }
-                      style={{ width: '1.2rem', height: '1.2rem', accentColor: '#d32f2f' }}
+                      className="h-5 w-5 accent-iujo-red"
                     />
                     Enviar alerta automática por Telegram al superar M ≥{' '}
                     {quakeConfig.minMagnitude.toFixed(1)}
@@ -923,10 +1482,10 @@ export default function DashboardPage() {
                 </div>
               </fieldset>
 
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
+              <div className="flex flex-wrap gap-3">
                 <button
                   type="submit"
-                  className="btn-primary"
+                  className={primaryBtnClasses}
                   disabled={savingQuakeConfig}
                 >
                   {savingQuakeConfig
@@ -936,37 +1495,29 @@ export default function DashboardPage() {
 
                 <button
                   type="button"
-                  className="btn-secondary"
+                  className={secondaryBtnClasses}
                   onClick={handleSimulateQuakeAlert}
                   disabled={simulatingQuake}
                 >
-                  <Radio size={18} color="#d32f2f" aria-hidden="true" />
+                  <Radio size={18} className="text-iujo-red" aria-hidden="true" />
                   {simulatingQuake
                     ? 'Enviando simulacro...'
-                    : `Simular Alerta M ${quakeConfig.minMagnitude.toFixed(1)} en Telegram`}
+                    : `Simular Alerta M ${quakeConfig.minMagnitude.toFixed(
+                        1
+                      )} en Telegram`}
                 </button>
               </div>
             </form>
           </section>
 
-          <section className="card">
-            <h2 className="card-title">
+          <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm lg:col-span-5">
+            <h2 className="mb-1 text-lg font-bold text-slate-900">
               ¿Por qué usamos USGS + EMSC para Barquisimeto?
             </h2>
-            <p className="card-desc">
+            <p className="mb-4 text-sm text-slate-600">
               Arquitectura recomendada para monitoreo sísmico confiable en el Estado Lara:
             </p>
-            <ul
-              style={{
-                margin: 0,
-                paddingInlineStart: '1.2rem',
-                fontSize: '0.9rem',
-                color: 'var(--text-main)',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '0.65rem',
-              }}
-            >
+            <ul className="list-disc space-y-2.5 pl-5 text-sm text-slate-800">
               <li>
                 <strong>Cobertura en la Falla de Boconó:</strong> FUNVISIS no ofrece una API REST pública estable. Por ello integramos el servicio estándar internacional{' '}
                 <strong>FDSN GeoJSON de USGS</strong> junto con{' '}
@@ -978,28 +1529,22 @@ export default function DashboardPage() {
               </li>
               <li>
                 <strong>Ejecución en Vercel:</strong> Incluye un Cron Job en{' '}
-                <code>vercel.json</code> (<code>/api/quakes/check</code>) y verificación en vivo para disparar el aviso sin duplicar alertas ya enviadas.
+                <code className="rounded bg-slate-100 px-1 py-0.5 text-xs">
+                  vercel.json
+                </code>{' '}
+                (<code className="rounded bg-slate-100 px-1 py-0.5 text-xs">/api/quakes/check</code>) y verificación en vivo para disparar el aviso sin duplicar alertas ya enviadas.
               </li>
             </ul>
           </section>
 
           {/* Full-width Seismic Events Table */}
-          <section className="card" style={{ gridColumn: '1 / -1' }}>
-            <div
-              style={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                gap: '1rem',
-                marginBottom: '1rem',
-              }}
-            >
+          <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm lg:col-span-12">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
               <div>
-                <h2 className="card-title">
+                <h2 className="text-lg font-bold text-slate-900">
                   Sismos Detectados en la Región Centro-Occidental / Barquisimeto (Últimos 30 días)
                 </h2>
-                <p className="card-desc" style={{ marginBottom: 0 }}>
+                <p className="text-sm text-slate-600">
                   Los eventos que igualan o superan tu umbral configurado (
                   <strong>M ≥ {quakeConfig.minMagnitude.toFixed(1)}</strong>) se resaltan como{' '}
                   <strong>ALERTA</strong>.
@@ -1008,18 +1553,22 @@ export default function DashboardPage() {
 
               <button
                 type="button"
-                className="btn-secondary"
+                className={secondaryBtnClasses}
                 onClick={loadQuakes}
                 disabled={loadingQuakes}
               >
-                <RefreshCw size={16} aria-hidden="true" />
+                <RefreshCw
+                  size={16}
+                  className={loadingQuakes ? 'animate-spin' : ''}
+                  aria-hidden="true"
+                />
                 {loadingQuakes ? 'Consultando USGS + EMSC...' : 'Actualizar radar sísmico'}
               </button>
             </div>
 
-            <div className="table-wrapper">
+            <div className="table-wrapper rounded-[10px] border border-slate-200">
               <table
-                className="data-table"
+                className="data-table w-full border-separate border-spacing-0 text-sm"
                 style={
                   {
                     '--label-2': '"Referencia Barquisimeto"',
@@ -1029,20 +1578,53 @@ export default function DashboardPage() {
                   } as React.CSSProperties
                 }
               >
-                <thead>
+                <thead className="sticky top-0 z-10 bg-slate-100">
                   <tr>
-                    <th scope="col">Magnitud</th>
-                    <th scope="col">Referencia Barquisimeto</th>
-                    <th scope="col">Profundidad</th>
-                    <th scope="col">Fecha y Hora (VET)</th>
-                    <th scope="col">Estado Umbral</th>
+                    <th
+                      scope="col"
+                      className="border-b border-slate-200 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-600"
+                    >
+                      Magnitud
+                    </th>
+                    <th
+                      scope="col"
+                      className="border-b border-slate-200 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-600"
+                    >
+                      Referencia Barquisimeto
+                    </th>
+                    <th
+                      scope="col"
+                      className="border-b border-slate-200 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-600"
+                    >
+                      Profundidad
+                    </th>
+                    <th
+                      scope="col"
+                      className="border-b border-slate-200 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-600"
+                    >
+                      Fecha y Hora (VET)
+                    </th>
+                    <th
+                      scope="col"
+                      className="border-b border-slate-200 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-600"
+                    >
+                      Estado Umbral
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {quakes.length === 0 ? (
                     <tr>
-                      <th scope="row">Sin eventos</th>
-                      <td colSpan={4}>
+                      <th
+                        scope="row"
+                        className="sticky left-0 z-[1] border-b border-slate-200 bg-white px-4 py-3 text-left font-bold text-slate-900"
+                      >
+                        Sin eventos
+                      </th>
+                      <td
+                        colSpan={4}
+                        className="border-b border-slate-200 px-4 py-3 text-slate-600"
+                      >
                         {loadingQuakes
                           ? 'Consultando servidores sismológicos USGS y EMSC...'
                           : `No se registran sismos en un radio de ${quakeConfig.maxRadiusKm} km de Barquisimeto en los últimos 30 días. Puedes usar el botón "Simular Alerta" arriba para probar el envío a Telegram.`}
@@ -1052,42 +1634,48 @@ export default function DashboardPage() {
                     quakes.map((q) => {
                       const exceeds = q.magnitude >= quakeConfig.minMagnitude;
                       return (
-                        <tr key={q.id}>
-                          <th scope="row">
+                        <tr key={q.id} className="hover:bg-slate-50">
+                          <th
+                            scope="row"
+                            className="sticky left-0 z-[1] border-b border-slate-200 bg-white px-4 py-3 text-left font-bold text-slate-900"
+                          >
                             <span
-                              className={`badge ${
+                              className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-bold ${
                                 q.magnitude >= 5.0
-                                  ? 'red'
+                                  ? 'bg-red-100 text-red-900'
                                   : q.magnitude >= 4.0
-                                  ? 'amber'
-                                  : 'blue'
+                                  ? 'bg-amber-100 text-amber-900'
+                                  : 'bg-blue-100 text-blue-900'
                               }`}
-                              style={{ fontSize: '0.9rem' }}
                             >
                               M {q.magnitude.toFixed(1)} Mw
                             </span>
                           </th>
-                          <td>
-                            <div style={{ fontWeight: 600 }}>{q.referenceBqto}</div>
-                            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                          <td className="border-b border-slate-200 px-4 py-3">
+                            <div className="font-semibold text-slate-900">
+                              {q.referenceBqto}
+                            </div>
+                            <div className="text-xs text-slate-600">
                               {q.place} • Fuente: {q.source}
                             </div>
                           </td>
-                          <td>{q.depthKm} km</td>
-                          <td>
+                          <td className="border-b border-slate-200 px-4 py-3">
+                            {q.depthKm} km
+                          </td>
+                          <td className="border-b border-slate-200 px-4 py-3">
                             {new Intl.DateTimeFormat('es-VE', {
                               dateStyle: 'medium',
                               timeStyle: 'short',
                               timeZone: 'America/Caracas',
                             }).format(new Date(q.timestamp))}
                           </td>
-                          <td>
+                          <td className="border-b border-slate-200 px-4 py-3">
                             {exceeds ? (
-                              <span className="badge red">
+                              <span className="inline-flex items-center rounded-full bg-red-100 px-2.5 py-1 text-xs font-bold text-red-900">
                                 🚨 SUPERA UMBRAL (M ≥ {quakeConfig.minMagnitude.toFixed(1)})
                               </span>
                             ) : (
-                              <span className="badge green">
+                              <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-1 text-xs font-bold text-green-900">
                                 Bajo umbral (&lt; {quakeConfig.minMagnitude.toFixed(1)})
                               </span>
                             )}
@@ -1105,55 +1693,52 @@ export default function DashboardPage() {
 
       {/* TAB 3: SUBSCRIBERS LIST */}
       {activeTab === 'subscribers' && (
-        <section className="card">
-          <div
-            style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              gap: '1rem',
-              marginBottom: '1.25rem',
-            }}
-          >
+        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
             <div>
-              <h2 className="card-title">
-                <Users size={22} color="#d32f2f" aria-hidden="true" />
+              <h2 className="flex items-center gap-2 text-lg font-bold text-slate-900">
+                <Users size={22} className="text-iujo-red" aria-hidden="true" />
                 Directorio de Usuarios Suscritos ({activeSubscribersCount} activos de{' '}
                 {subscribers.length})
               </h2>
-              <p className="card-desc" style={{ marginBottom: 0 }}>
+              <p className="text-sm text-slate-600">
                 Cualquier estudiante o docente que abra el bot{' '}
                 {botUsername ? (
                   <a
                     href={`https://t.me/${botUsername}`}
                     target="_blank"
                     rel="noreferrer"
-                    style={{ fontWeight: 700, color: '#d32f2f' }}
+                    className="font-bold text-iujo-red underline"
                   >
                     @{botUsername}
                   </a>
                 ) : (
                   'en Telegram'
                 )}{' '}
-                y envíe <code>/start</code> aparecerá automáticamente aquí.
+                y envíe{' '}
+                <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs">/start</code>{' '}
+                aparecerá automáticamente aquí.
               </p>
             </div>
 
             <button
               type="button"
-              className="btn-secondary"
+              className={secondaryBtnClasses}
               onClick={() => loadDashboard(false)}
               disabled={syncing}
             >
-              <RefreshCw size={16} aria-hidden="true" />
+              <RefreshCw
+                size={16}
+                className={syncing ? 'animate-spin' : ''}
+                aria-hidden="true"
+              />
               {syncing ? 'Actualizando...' : 'Buscar nuevos suscriptores (/start)'}
             </button>
           </div>
 
-          <div className="table-wrapper">
+          <div className="table-wrapper rounded-[10px] border border-slate-200">
             <table
-              className="data-table"
+              className="data-table w-full border-separate border-spacing-0 text-sm"
               style={
                 {
                   '--label-2': '"Usuario Telegram"',
@@ -1163,27 +1748,60 @@ export default function DashboardPage() {
                 } as React.CSSProperties
               }
             >
-              <thead>
+              <thead className="sticky top-0 z-10 bg-slate-100">
                 <tr>
-                  <th scope="col">Nombre</th>
-                  <th scope="col">Usuario Telegram</th>
-                  <th scope="col">Chat ID</th>
-                  <th scope="col">Estado</th>
-                  <th scope="col">Fecha Suscripción</th>
+                  <th
+                    scope="col"
+                    className="border-b border-slate-200 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-600"
+                  >
+                    Nombre
+                  </th>
+                  <th
+                    scope="col"
+                    className="border-b border-slate-200 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-600"
+                  >
+                    Usuario Telegram
+                  </th>
+                  <th
+                    scope="col"
+                    className="border-b border-slate-200 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-600"
+                  >
+                    Chat ID
+                  </th>
+                  <th
+                    scope="col"
+                    className="border-b border-slate-200 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-600"
+                  >
+                    Estado
+                  </th>
+                  <th
+                    scope="col"
+                    className="border-b border-slate-200 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-600"
+                  >
+                    Fecha Suscripción
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {subscribers.length === 0 ? (
                   <tr>
-                    <th scope="row">Sin suscriptores</th>
-                    <td colSpan={4}>
+                    <th
+                      scope="row"
+                      className="sticky left-0 z-[1] border-b border-slate-200 bg-white px-4 py-3 text-left font-bold text-slate-900"
+                    >
+                      Sin suscriptores
+                    </th>
+                    <td
+                      colSpan={4}
+                      className="border-b border-slate-200 px-4 py-3 text-slate-600"
+                    >
                       Aún no hay usuarios registrados. Abre{' '}
                       {botUsername ? (
                         <a
                           href={`https://t.me/${botUsername}`}
                           target="_blank"
                           rel="noreferrer"
-                          style={{ fontWeight: 700 }}
+                          className="font-bold text-iujo-red underline"
                         >
                           https://t.me/{botUsername}
                         </a>
@@ -1195,23 +1813,34 @@ export default function DashboardPage() {
                   </tr>
                 ) : (
                   subscribers.map((sub) => (
-                    <tr key={sub.chatId}>
-                      <th scope="row">
+                    <tr key={sub.chatId} className="hover:bg-slate-50">
+                      <th
+                        scope="row"
+                        className="sticky left-0 z-[1] border-b border-slate-200 bg-white px-4 py-3 text-left font-bold text-slate-900"
+                      >
                         {[sub.firstName, sub.lastName].filter(Boolean).join(' ') ||
                           'Usuario Telegram'}
                       </th>
-                      <td>{sub.username ? `@${sub.username}` : 'Sin alias público'}</td>
-                      <td>
-                        <code>{sub.chatId}</code>
+                      <td className="border-b border-slate-200 px-4 py-3">
+                        {sub.username ? `@${sub.username}` : 'Sin alias público'}
                       </td>
-                      <td>
+                      <td className="border-b border-slate-200 px-4 py-3">
+                        <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs">
+                          {sub.chatId}
+                        </code>
+                      </td>
+                      <td className="border-b border-slate-200 px-4 py-3">
                         {sub.active ? (
-                          <span className="badge green">🟢 Suscrito Activo</span>
+                          <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-1 text-xs font-bold text-green-900">
+                            🟢 Suscrito Activo
+                          </span>
                         ) : (
-                          <span className="badge red">🔕 Pausado (/stop)</span>
+                          <span className="inline-flex items-center rounded-full bg-red-100 px-2.5 py-1 text-xs font-bold text-red-900">
+                            🔕 Pausado (/stop)
+                          </span>
                         )}
                       </td>
-                      <td>
+                      <td className="border-b border-slate-200 px-4 py-3">
                         {new Intl.DateTimeFormat('es-VE', {
                           dateStyle: 'medium',
                           timeStyle: 'short',
@@ -1228,76 +1857,163 @@ export default function DashboardPage() {
 
       {/* TAB 4: BOT CUSTOMIZATION & VERCEL DEPLOYMENT */}
       {activeTab === 'customize' && (
-        <div className="dashboard-grid">
-          <section className="card">
-            <h2 className="card-title">
-              <Sparkles size={20} color="#d32f2f" aria-hidden="true" />
+        <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
+          <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm lg:col-span-7">
+            <h2 className="mb-1 flex items-center gap-2 text-lg font-bold text-slate-900">
+              <Sparkles size={20} className="text-iujo-red" aria-hidden="true" />
               Personalizar Identidad del Bot en Telegram
             </h2>
-            <p className="card-desc">
+            <p className="mb-5 text-sm text-slate-600">
               Actualiza directamente desde aquí el nombre, la descripción, los comandos y la{' '}
-              <strong>foto de perfil oficial de IUJO Extensión Barquisimeto</strong> usando el token de{' '}
-              <code>.env</code>.
+              <strong className="text-slate-900">
+                foto de perfil oficial de IUJO Extensión Barquisimeto
+              </strong>{' '}
+              usando el token de{' '}
+              <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs">.env</code>.
             </p>
 
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '1rem',
-                padding: '1rem',
-                background: '#f8fafc',
-                border: '1px solid var(--border-subtle)',
-                borderRadius: '12px',
-                marginBottom: '1.25rem',
-              }}
-            >
-              <img
-                src="/iujo-logo.jpg"
-                alt="Imagen de perfil IUJO Extensión Barquisimeto"
-                width={72}
-                height={72}
-                style={{
-                  borderRadius: '50%',
-                  border: '2px solid #111827',
-                  objectFit: 'cover',
-                }}
-              />
-              <div>
-                <div style={{ fontWeight: 700 }}>
-                  Imagen lista: Logo IUJO Extensión Barquisimeto (Fe y Alegría)
-                </div>
-                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                  Se enviará mediante el método oficial <code>setMyProfilePhoto</code> de Telegram Bot API junto con los textos institucionales.
-                </div>
-              </div>
-            </div>
-
             {customizeSteps.length > 0 && (
-              <div className="feedback-banner info" role="status" aria-live="polite">
-                <div>
-                  <strong>Resultado de la sincronización con Telegram:</strong>
-                  <ul style={{ margin: '0.4rem 0 0', paddingInlineStart: '1.2rem' }}>
-                    {customizeSteps.map((s, idx) => (
-                      <li key={idx}>
-                        {s.ok ? '✅' : '⚠️'} <strong>{s.step}</strong>
-                        {s.detail ? ` — ${s.detail}` : ''}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+              <div
+                className="mb-5 rounded-[10px] border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900"
+                role="status"
+                aria-live="polite"
+              >
+                <strong>Resultado de la sincronización con Telegram:</strong>
+                <ul className="mt-2 list-disc space-y-1 pl-5">
+                  {customizeSteps.map((s, idx) => (
+                    <li key={idx}>
+                      {s.ok ? '✅' : '⚠️'} <strong>{s.step}</strong>
+                      {s.detail ? ` — ${s.detail}` : ''}
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
 
             <form action="/api/bot/customize" method="POST" onSubmit={handleCustomizeBot}>
-              <fieldset>
-                <legend>Datos del Perfil del Bot</legend>
+              <fieldset className="mb-5 rounded-[10px] border border-slate-200 p-4">
+                <legend className="px-2 text-sm font-bold text-slate-900">
+                  Foto de Perfil del Bot en Telegram
+                </legend>
 
-                <div className="form-group">
-                  <label htmlFor="bot-name" className="field-label">
+                <label
+                  htmlFor="bot-photo"
+                  className="mb-1 inline-block py-1 text-sm font-semibold text-slate-900"
+                >
+                  Cambiar imagen o logo del Bot (opcional)
+                </label>
+                <span
+                  id="bot-photo-hint"
+                  className="mb-2 block text-xs text-slate-600"
+                >
+                  Arrastra y suelta una imagen aquí, pégala con{' '}
+                  <kbd className="rounded border border-slate-300 bg-slate-100 px-1.5 py-0.5 font-sans text-[11px] font-semibold text-slate-800">
+                    Ctrl+V
+                  </kbd>{' '}
+                  o selecciónala desde tu equipo. Se enviará mediante{' '}
+                  <code className="rounded bg-slate-200 px-1 py-0.5">setMyProfilePhoto</code>.
+                </span>
+
+                <div
+                  onDragEnter={handleDragOverBotPhoto}
+                  onDragOver={handleDragOverBotPhoto}
+                  onDragLeave={handleDragLeaveBotPhoto}
+                  onDrop={handleDropBotPhoto}
+                  className={`rounded-xl border-2 border-dashed p-4 transition-colors ${
+                    isDraggingBotPhoto
+                      ? 'border-iujo-red bg-red-50/70'
+                      : 'border-slate-300 bg-slate-50/70 hover:border-slate-400'
+                  }`}
+                >
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-4">
+                    <div className="flex items-center gap-4">
+                      <img
+                        src={botPhotoPreview || '/iujo-logo.jpg'}
+                        alt="Vista previa de foto de perfil del Bot"
+                        width={72}
+                        height={72}
+                        className="h-[72px] w-[72px] shrink-0 rounded-full border-2 border-slate-900 bg-white object-cover shadow-sm"
+                      />
+                      <div>
+                        <div className="font-bold text-slate-900">
+                          {isDraggingBotPhoto
+                            ? '¡Suelta la imagen aquí para usarla como foto de perfil!'
+                            : botPhotoFile
+                            ? `Nueva foto seleccionada: ${botPhotoFile.name}`
+                            : 'Imagen actual: Logo IUJO Extensión Barquisimeto (Por defecto)'}
+                        </div>
+                        <div className="mt-0.5 text-xs text-slate-600">
+                          {botPhotoFile
+                            ? `Tamaño optimizado para Telegram: ${(
+                                botPhotoFile.size / 1024
+                              ).toFixed(1)} KB (JPG 640×640)`
+                            : 'Arrastra otra imagen aquí, presiona Ctrl+V para pegar desde el portapapeles o elige un archivo abajo.'}
+                        </div>
+                      </div>
+                    </div>
+
+                    {botPhotoFile && (
+                      <button
+                        type="button"
+                        onClick={clearSelectedBotPhoto}
+                        className="inline-flex min-h-[48px] items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2 text-xs font-semibold text-red-800 hover:bg-red-100 focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-[#0b57d0]"
+                      >
+                        <Trash2 size={15} aria-hidden="true" />
+                        Restaurar logo IUJO
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-3">
+                    <input
+                      ref={botPhotoInputRef}
+                      type="file"
+                      id="bot-photo"
+                      name="photo"
+                      accept="image/jpeg,image/png,image/webp"
+                      onChange={handleBotPhotoChange}
+                      aria-describedby="bot-photo-hint"
+                      className="block flex-1 text-sm text-slate-700 file:mr-3 file:min-h-[48px] file:cursor-pointer file:rounded-[10px] file:border file:border-slate-300 file:bg-white file:px-4 file:py-2.5 file:text-sm file:font-semibold file:text-slate-900 hover:file:bg-slate-100 focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-[#0b57d0]"
+                    />
+                    <button
+                      type="button"
+                      onClick={handlePasteBotPhotoButton}
+                      className={secondaryBtnClasses}
+                    >
+                      <ClipboardPaste size={16} aria-hidden="true" />
+                      Pegar imagen
+                    </button>
+                  </div>
+                </div>
+
+                {botPhotoError && (
+                  <div
+                    className="mt-2 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-900"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    <AlertTriangle size={15} className="shrink-0" aria-hidden="true" />
+                    <span>{botPhotoError}</span>
+                  </div>
+                )}
+              </fieldset>
+
+              <fieldset className="mb-5 rounded-[10px] border border-slate-200 p-4">
+                <legend className="px-2 text-sm font-bold text-slate-900">
+                  Datos del Perfil del Bot
+                </legend>
+
+                <div className="mb-6">
+                  <label
+                    htmlFor="bot-name"
+                    className="mb-1 inline-block py-1 text-sm font-semibold text-slate-900"
+                  >
                     Nombre visible del Bot (máx. 64 caracteres)
                   </label>
-                  <span id="bot-name-hint" className="field-hint">
+                  <span
+                    id="bot-name-hint"
+                    className="mb-1.5 block text-xs text-slate-600"
+                  >
                     Nombre que aparece en el encabezado del chat de Telegram.
                   </span>
                   <input
@@ -1311,14 +2027,21 @@ export default function DashboardPage() {
                       setBotProfile((prev) => ({ ...prev, name: e.target.value }))
                     }
                     aria-describedby="bot-name-hint"
+                    className={inputClasses}
                   />
                 </div>
 
-                <div className="form-group">
-                  <label htmlFor="bot-short-desc" className="field-label">
+                <div className="mb-6">
+                  <label
+                    htmlFor="bot-short-desc"
+                    className="mb-1 inline-block py-1 text-sm font-semibold text-slate-900"
+                  >
                     Biografía corta / Acerca de (máx. 120 caracteres)
                   </label>
-                  <span id="bot-short-hint" className="field-hint">
+                  <span
+                    id="bot-short-hint"
+                    className="mb-1.5 block text-xs text-slate-600"
+                  >
                     Aparece al abrir la tarjeta de perfil del bot en Telegram.
                   </span>
                   <input
@@ -1335,14 +2058,21 @@ export default function DashboardPage() {
                       }))
                     }
                     aria-describedby="bot-short-hint"
+                    className={inputClasses}
                   />
                 </div>
 
-                <div className="form-group">
-                  <label htmlFor="bot-desc" className="field-label">
+                <div>
+                  <label
+                    htmlFor="bot-desc"
+                    className="mb-1 inline-block py-1 text-sm font-semibold text-slate-900"
+                  >
                     Mensaje de bienvenida (&quot;¿Qué puede hacer este bot?&quot;)
                   </label>
-                  <span id="bot-desc-hint" className="field-hint">
+                  <span
+                    id="bot-desc-hint"
+                    className="mb-1.5 block text-xs text-slate-600"
+                  >
                     Se muestra a los usuarios antes de presionar el botón Iniciar (/start).
                   </span>
                   <textarea
@@ -1358,13 +2088,14 @@ export default function DashboardPage() {
                       }))
                     }
                     aria-describedby="bot-desc-hint"
+                    className={`${inputClasses} min-h-[120px] resize-y`}
                   />
                 </div>
               </fieldset>
 
               <button
                 type="submit"
-                className="btn-primary"
+                className={primaryBtnClasses}
                 disabled={isCustomizingBot}
               >
                 <Sparkles size={18} aria-hidden="true" />
@@ -1375,25 +2106,35 @@ export default function DashboardPage() {
             </form>
           </section>
 
-          <section className="card">
-            <h2 className="card-title">
+          <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm lg:col-span-5">
+            <h2 className="mb-1 text-lg font-bold text-slate-900">
               Modo Webhook para Producción en Vercel
             </h2>
-            <p className="card-desc">
-              En tu entorno local el bot funciona por <strong>Polling automático</strong> sin configurar nada. Cuando despliegues en <strong>Vercel</strong>, pega aquí tu dominio de Vercel para activar el Webhook Serverless.
+            <p className="mb-5 text-sm text-slate-600">
+              En tu entorno local el bot funciona por{' '}
+              <strong className="text-slate-900">Polling automático</strong> sin configurar nada. Cuando despliegues en <strong className="text-slate-900">Vercel</strong>, pega aquí tu dominio de Vercel para activar el Webhook Serverless.
             </p>
 
             {webhookFeedback && (
-              <div className="feedback-banner info" role="status">
+              <div
+                className="mb-4 rounded-[10px] border border-blue-200 bg-blue-50 p-3.5 text-sm text-blue-900"
+                role="status"
+              >
                 <span>{webhookFeedback}</span>
               </div>
             )}
 
-            <div className="form-group">
-              <label htmlFor="webhook-url" className="field-label">
+            <div className="mb-5">
+              <label
+                htmlFor="webhook-url"
+                className="mb-1 inline-block py-1 text-sm font-semibold text-slate-900"
+              >
                 URL del Webhook (HTTPS en Vercel)
               </label>
-              <span id="webhook-hint" className="field-hint">
+              <span
+                id="webhook-hint"
+                className="mb-1.5 block text-xs text-slate-600"
+              >
                 Ejemplo: https://tu-proyecto.vercel.app/api/telegram/webhook
               </span>
               <input
@@ -1406,13 +2147,14 @@ export default function DashboardPage() {
                 autoCorrect="off"
                 autoCapitalize="off"
                 spellCheck={false}
+                className={inputClasses}
               />
             </div>
 
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
+            <div className="flex flex-wrap gap-3">
               <button
                 type="button"
-                className="btn-primary"
+                className={primaryBtnClasses}
                 onClick={() => handleSetWebhook(webhookUrlInput)}
               >
                 Activar Webhook en Telegram
@@ -1420,7 +2162,7 @@ export default function DashboardPage() {
 
               <button
                 type="button"
-                className="btn-secondary"
+                className={secondaryBtnClasses}
                 onClick={() => {
                   setWebhookUrlInput('');
                   handleSetWebhook('');
@@ -1435,4 +2177,3 @@ export default function DashboardPage() {
     </div>
   );
 }
-

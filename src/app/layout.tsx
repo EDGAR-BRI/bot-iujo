@@ -14,8 +14,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="es">
-      <body>{children}</body>
+      <body className="min-h-screen bg-slate-50 text-slate-900 antialiased selection:bg-iujo-red selection:text-white">
+        {children}
+      </body>
     </html>
   );
 }
-
