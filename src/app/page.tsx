@@ -10,6 +10,7 @@ import {
   ClipboardPaste,
   ExternalLink,
   ImagePlus,
+  LogOut,
   Megaphone,
   Radio,
   RefreshCw,
@@ -759,6 +760,11 @@ export default function DashboardPage() {
     }
   }
 
+  async function handleLogout() {
+    await fetch('/api/auth/logout', { method: 'POST' }).catch(() => null);
+    window.location.href = '/login';
+  }
+
   const activeSubscribersCount = subscribers.filter((s) => s.active).length;
   const botUsername = botStatus.bot?.username || botProfile.username;
 
@@ -831,6 +837,15 @@ export default function DashboardPage() {
               aria-hidden="true"
             />
             {syncing ? 'Sincronizando...' : 'Sincronizar ahora'}
+          </button>
+
+          <button
+            type="button"
+            className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-[10px] border border-white/30 bg-white/10 px-3.5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-white/20 focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-[#0b57d0]"
+            onClick={handleLogout}
+          >
+            <LogOut size={16} aria-hidden="true" />
+            Salir
           </button>
         </div>
       </header>

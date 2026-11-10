@@ -10,8 +10,10 @@ import { fetchRecentQuakesForBarquisimeto } from './seismic';
 
 export function getBotToken(): string {
   const fromEnv =
-    process.env['TELGRAM-API0'] ||
     process.env.TELEGRAM_BOT_TOKEN ||
+    process.env.TELGRAM_API0 ||
+    process.env.TELEGRAM_API0 ||
+    process.env['TELGRAM-API0'] ||
     process.env.TELEGRAM_API;
 
   if (fromEnv && fromEnv.trim()) {
