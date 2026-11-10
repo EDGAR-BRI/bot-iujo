@@ -1,6 +1,35 @@
 {
   "subscribers": [
     {
+      "chatId": 5418753524,
+      "username": "darkslingermires",
+      "firstName": "Juan",
+      "lastName": "Sun",
+      "subscribedAt": "2026-11-10T17:02:31.280Z",
+      "active": true,
+      "receiveNews": true,
+      "receiveQuakes": true
+    },
+    {
+      "chatId": 806678473,
+      "username": "Zedmous",
+      "firstName": "Zedmous",
+      "lastName": "(Ed)",
+      "subscribedAt": "2026-11-10T15:21:20.655Z",
+      "active": true,
+      "receiveNews": true,
+      "receiveQuakes": true
+    },
+    {
+      "chatId": 5438383663,
+      "username": "j1111150",
+      "firstName": "J",
+      "subscribedAt": "2026-11-10T15:18:18.273Z",
+      "active": true,
+      "receiveNews": true,
+      "receiveQuakes": true
+    },
+    {
       "chatId": 6347955788,
       "username": "edgarbri26",
       "firstName": "Edgar",
@@ -10,19 +39,30 @@
       "receiveQuakes": true
     }
   ],
-  "posts": [],
+  "posts": [
+    {
+      "id": "post-sim-1794323706421",
+      "title": "[Simulacro] Alerta Sísmica M 3.5 — Sede Barquisimeto",
+      "category": "sismo",
+      "content": "A 14.5 km (SO) del campus IUJO Barquisimeto. Profundidad: 12.4 km.",
+      "linkUrl": "https://www.google.com/maps?q=9.985,-69.462",
+      "createdAt": "2026-11-10T15:15:06.421Z",
+      "sentCount": 1,
+      "failedCount": 0
+    }
+  ],
   "quakeConfig": {
     "enabled": true,
-    "minMagnitude": 3.5,
+    "minMagnitude": 2.5,
     "maxRadiusKm": 250,
     "centerName": "IUJO Extensión Barquisimeto, Edo. Lara",
     "latitude": 10.0647,
     "longitude": -69.357,
     "autoAlertTelegram": true,
-    "lastCheckedAt": "2026-11-10T15:13:12.665Z"
+    "lastCheckedAt": "2026-11-10T17:18:34.759Z"
   },
   "notifiedQuakeIds": [],
-  "lastUpdateId": 290058055,
+  "lastUpdateId": 290058068,
   "botProfile": {
     "name": "IUJO Barquisimeto | Alertas",
     "shortDescription": "Canal oficial de noticias, avisos y alertas sísmicas de IUJO Extensión Barquisimeto (Fe y Alegría).",

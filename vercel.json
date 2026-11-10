@@ -2,8 +2,7 @@
   "crons": [
     {
       "path": "/api/quakes/check",
-      "schedule": "*/5 * * * *"
+      "schedule": "0 12 * * *"
     }
   ]
 }
-
