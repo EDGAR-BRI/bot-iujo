@@ -41,6 +41,17 @@
   ],
   "posts": [
     {
+      "id": "post-1794335739966",
+      "title": "🏆 ¡Revelados los 5 profesores con más AURA del IUJO! ✨",
+      "category": "noticia",
+      "content": "¡Atención, comunidad del IUJO! 🎉\r\n\r\nNos complace presentarles un merecido y divertido reconocimiento a esos docentes que, además de enseñar, tienen una energía, carisma y presencia inigualable. ¡Aquí está el top 5 de los profesores con más \"AURA\" de nuestra institución! 🌌😎\r\n\r\nEl ranking oficial:\r\n1. 🥇 Profe Eduardo Nieves (¡Liderando con +9999 de aura!)\r\n2. 🥈 Profe Víctor\r\n3. 🥉 Profe Hernel Méndez\r\n4. 🏅 Prof. Marilex\r\n5. 🏅 Prof. Magda Perozo\r\n\r\n🌟 Mención Especial: ¡Jesús Camacho!\r\n\r\nFelicitamos a estos profes que con su actitud, dedicación y buena vibra se ganan el respeto y el cariño de todos en los pasillos y aulas. Su impacto y conexión con los estudiantes son indiscutibles. 🙌\r\n\r\n📸 ¡No te pierdas el flyer adjunto para verlos con todo el estilo que los caracteriza! Déjanos saber en los comentarios de nuestro canal de Telegram si estás de acuerdo con el top.\r\n\r\n¡Gracias por hacer de nuestra comunidad universitaria un lugar con tanta energía y personalidad!",
+      "hasImage": true,
+      "imageName": "imagen-pegada-170120.png",
+      "createdAt": "2026-11-10T18:35:39.966Z",
+      "sentCount": 4,
+      "failedCount": 0
+    },
+    {
       "id": "post-sim-1794323706421",
       "title": "[Simulacro] Alerta Sísmica M 3.5 — Sede Barquisimeto",
       "category": "sismo",
@@ -59,10 +70,10 @@
     "latitude": 10.0647,
     "longitude": -69.357,
     "autoAlertTelegram": true,
-    "lastCheckedAt": "2026-11-10T17:18:34.759Z"
+    "lastCheckedAt": "2026-11-10T18:37:13.842Z"
   },
   "notifiedQuakeIds": [],
-  "lastUpdateId": 290058068,
+  "lastUpdateId": 290058069,
   "botProfile": {
     "name": "IUJO Barquisimeto | Alertas",
     "shortDescription": "Canal oficial de noticias, avisos y alertas sísmicas de IUJO Extensión Barquisimeto (Fe y Alegría).",
