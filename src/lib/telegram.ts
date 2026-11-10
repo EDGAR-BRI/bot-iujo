@@ -339,21 +339,10 @@ export async function broadcastToSubscribers(
 
       if (photoPayload) {
         const photoSource = cachedFileId || photoPayload;
-        // Telegram photo captions allow up to 1024 characters
-        if (htmlMessage.length <= 1024) {
-          const photoRes = await sendTelegramPhoto(sub.chatId, photoSource, htmlMessage);
-          if (photoRes.fileId) cachedFileId = photoRes.fileId;
-          res = photoRes;
-        } else {
-          // Send photo first, then full HTML text message
-          const photoRes = await sendTelegramPhoto(sub.chatId, photoSource);
-          if (photoRes.fileId) cachedFileId = photoRes.fileId;
-          if (photoRes.ok) {
-            res = await sendTelegramMessage(sub.chatId, htmlMessage);
-          } else {
-            res = photoRes;
-          }
-        }
+        // Always send photo and text together in a single Telegram message via sendPhoto caption
+        const photoRes = await sendTelegramPhoto(sub.chatId, photoSource, htmlMessage);
+        if (photoRes.fileId) cachedFileId = photoRes.fileId;
+        res = photoRes;
       } else {
         res = await sendTelegramMessage(sub.chatId, htmlMessage);
       }
