@@ -1,8 +1,51 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { customizeBotProfile, telegramCall } from '@/lib/telegram';
+import {
+  BroadcastPhotoPayload,
+  customizeBotProfile,
+  telegramCall,
+} from '@/lib/telegram';
 
 export async function POST(req: NextRequest) {
   try {
+    const contentType = req.headers.get('content-type') || '';
+
+    if (contentType.includes('multipart/form-data')) {
+      const formData = await req.formData();
+      const name = String(formData.get('name') || '').trim();
+      const shortDescription = String(formData.get('shortDescription') || '').trim();
+      const description = String(formData.get('description') || '').trim();
+
+      let customPhoto: BroadcastPhotoPayload | undefined;
+      const photoEntry = formData.get('photo');
+      if (photoEntry && typeof photoEntry === 'object' && 'arrayBuffer' in photoEntry) {
+        const file = photoEntry as File;
+        if (file.size > 0) {
+          if (file.size > 10 * 1024 * 1024) {
+            return NextResponse.json(
+              { ok: false, error: 'La foto de perfil no debe superar los 10 MB.' },
+              { status: 400 }
+            );
+          }
+          const arrBuf = await file.arrayBuffer();
+          customPhoto = {
+            buffer: Buffer.from(arrBuf),
+            filename: file.name || 'bot-avatar.jpg',
+            mimeType: file.type || 'image/jpeg',
+          };
+        }
+      }
+
+      const result = await customizeBotProfile(
+        {
+          name,
+          shortDescription,
+          description,
+        },
+        customPhoto
+      );
+      return NextResponse.json(result);
+    }
+
     const body = await req.json();
 
     if (body.action === 'setWebhook') {

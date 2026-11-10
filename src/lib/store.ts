@@ -20,6 +20,8 @@ export interface BroadcastPost {
   category: PostCategory;
   content: string;
   linkUrl?: string;
+  hasImage?: boolean;
+  imageName?: string;
   createdAt: string;
   sentCount: number;
   failedCount: number;

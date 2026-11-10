@@ -113,7 +113,8 @@ export async function getBotStatus() {
 }
 
 export async function customizeBotProfile(
-  profileInput?: Partial<BotProfileConfig>
+  profileInput?: Partial<BotProfileConfig>,
+  customPhoto?: BroadcastPhotoPayload
 ): Promise<{
   ok: boolean;
   steps: { step: string; ok: boolean; detail?: string }[];
@@ -173,12 +174,26 @@ export async function customizeBotProfile(
     detail: cmdRes.description,
   });
 
-  // 5. setMyProfilePhoto with IUJO Barquisimeto JPG image
+  // 5. setMyProfilePhoto with custom uploaded image or default IUJO Barquisimeto JPG image
   try {
-    const jpgPath = path.join(process.cwd(), 'public', 'iujo-logo.jpg');
-    if (fs.existsSync(jpgPath)) {
-      const buffer = fs.readFileSync(jpgPath);
-      const blob = new Blob([buffer], { type: 'image/jpeg' });
+    let photoBuffer: Buffer | null = null;
+    let photoMime = 'image/jpeg';
+    let photoFilename = 'iujo-logo.jpg';
+
+    if (customPhoto && customPhoto.buffer.length > 0) {
+      photoBuffer = customPhoto.buffer;
+      photoMime = customPhoto.mimeType || 'image/jpeg';
+      photoFilename = customPhoto.filename || 'bot-profile.jpg';
+    } else {
+      const jpgPath = path.join(process.cwd(), 'public', 'iujo-logo.jpg');
+      if (fs.existsSync(jpgPath)) {
+        photoBuffer = fs.readFileSync(jpgPath);
+      }
+    }
+
+    if (photoBuffer) {
+      const uint8 = new Uint8Array(photoBuffer);
+      const blob = new Blob([uint8], { type: photoMime });
       const form = new FormData();
       form.append(
         'photo',
@@ -187,7 +202,7 @@ export async function customizeBotProfile(
           photo: 'attach://avatar_file',
         })
       );
-      form.append('avatar_file', blob, 'iujo-logo.jpg');
+      form.append('avatar_file', blob, photoFilename);
 
       const photoRes = await fetch(`${getApiBase()}/setMyProfilePhoto`, {
         method: 'POST',
@@ -199,7 +214,7 @@ export async function customizeBotProfile(
         nextProfile.photoSynced = true;
       }
       steps.push({
-        step: 'Foto de Perfil IUJO Barquisimeto (setMyProfilePhoto)',
+        step: `Foto de Perfil del Bot (${photoFilename} → setMyProfilePhoto)`,
         ok: Boolean(photoJson.ok),
         detail: photoJson.description,
       });
@@ -207,12 +222,12 @@ export async function customizeBotProfile(
       steps.push({
         step: 'Foto de Perfil IUJO Barquisimeto',
         ok: false,
-        detail: 'No se encontró public/iujo-logo.jpg',
+        detail: 'No se encontró public/iujo-logo.jpg ni imagen personalizada',
       });
     }
   } catch (err) {
     steps.push({
-      step: 'Foto de Perfil IUJO Barquisimeto (setMyProfilePhoto)',
+      step: 'Foto de Perfil del Bot (setMyProfilePhoto)',
       ok: false,
       detail: err instanceof Error ? err.message : 'Error subiendo imagen',
     });
@@ -241,9 +256,71 @@ export async function sendTelegramMessage(
   });
 }
 
+export interface BroadcastPhotoPayload {
+  buffer: Buffer;
+  filename: string;
+  mimeType: string;
+}
+
+export async function sendTelegramPhoto(
+  chatId: number | string,
+  photo: BroadcastPhotoPayload | string,
+  captionHtml?: string
+): Promise<{
+  ok: boolean;
+  error_code?: number;
+  description?: string;
+  fileId?: string;
+}> {
+  if (typeof photo === 'string') {
+    const res = await telegramCall<{
+      photo?: { file_id: string }[];
+    }>('sendPhoto', {
+      chat_id: chatId,
+      photo,
+      caption: captionHtml,
+      parse_mode: captionHtml ? 'HTML' : undefined,
+    });
+    const largest = res.result?.photo?.[res.result.photo.length - 1];
+    return {
+      ok: res.ok,
+      error_code: res.error_code,
+      description: res.description,
+      fileId: largest?.file_id || photo,
+    };
+  }
+
+  const form = new FormData();
+  form.append('chat_id', String(chatId));
+  if (captionHtml) {
+    form.append('caption', captionHtml);
+    form.append('parse_mode', 'HTML');
+  }
+  const uint8 = new Uint8Array(photo.buffer);
+  const blob = new Blob([uint8], { type: photo.mimeType || 'image/jpeg' });
+  form.append('photo', blob, photo.filename || 'imagen-iujo.jpg');
+
+  const response = await fetch(`${getApiBase()}/sendPhoto`, {
+    method: 'POST',
+    body: form,
+    cache: 'no-store',
+  });
+  const json = await response.json();
+  const photosArr = json.result?.photo;
+  const largest = Array.isArray(photosArr) ? photosArr[photosArr.length - 1] : undefined;
+
+  return {
+    ok: Boolean(json.ok),
+    error_code: json.error_code,
+    description: json.description,
+    fileId: largest?.file_id,
+  };
+}
+
 export async function broadcastToSubscribers(
   htmlMessage: string,
-  type: 'news' | 'quakes' = 'news'
+  type: 'news' | 'quakes' = 'news',
+  photoPayload?: BroadcastPhotoPayload
 ): Promise<{ sentCount: number; failedCount: number; totalTargets: number }> {
   const store = readStore();
   const targets = store.subscribers.filter((s) => {
@@ -254,10 +331,33 @@ export async function broadcastToSubscribers(
   let sentCount = 0;
   let failedCount = 0;
   let storeModified = false;
+  let cachedFileId: string | undefined;
 
   for (const sub of targets) {
     try {
-      const res = await sendTelegramMessage(sub.chatId, htmlMessage);
+      let res: { ok: boolean; error_code?: number; description?: string };
+
+      if (photoPayload) {
+        const photoSource = cachedFileId || photoPayload;
+        // Telegram photo captions allow up to 1024 characters
+        if (htmlMessage.length <= 1024) {
+          const photoRes = await sendTelegramPhoto(sub.chatId, photoSource, htmlMessage);
+          if (photoRes.fileId) cachedFileId = photoRes.fileId;
+          res = photoRes;
+        } else {
+          // Send photo first, then full HTML text message
+          const photoRes = await sendTelegramPhoto(sub.chatId, photoSource);
+          if (photoRes.fileId) cachedFileId = photoRes.fileId;
+          if (photoRes.ok) {
+            res = await sendTelegramMessage(sub.chatId, htmlMessage);
+          } else {
+            res = photoRes;
+          }
+        }
+      } else {
+        res = await sendTelegramMessage(sub.chatId, htmlMessage);
+      }
+
       if (res.ok) {
         sentCount++;
       } else {

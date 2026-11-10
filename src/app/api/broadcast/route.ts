@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { BroadcastPost, PostCategory, readStore, writeStore } from '@/lib/store';
-import { broadcastToSubscribers, syncTelegramUpdates } from '@/lib/telegram';
+import {
+  BroadcastPhotoPayload,
+  broadcastToSubscribers,
+  syncTelegramUpdates,
+} from '@/lib/telegram';
 
 const CATEGORY_BADGES: Record<PostCategory, { icon: string; label: string }> = {
   noticia: { icon: '📢', label: 'NOTICIA INSTITUCIONAL — IUJO BARQUISIMETO' },
@@ -21,11 +25,46 @@ export async function POST(req: NextRequest) {
     // First sync any recent /start subscribers before broadcasting
     await syncTelegramUpdates().catch(() => null);
 
-    const body = await req.json();
-    const title = String(body.title || '').trim();
-    const content = String(body.content || '').trim();
-    const category = (body.category || 'noticia') as PostCategory;
-    const linkUrl = String(body.linkUrl || '').trim();
+    let title = '';
+    let content = '';
+    let category: PostCategory = 'noticia';
+    let linkUrl = '';
+    let photoPayload: BroadcastPhotoPayload | undefined;
+
+    const contentType = req.headers.get('content-type') || '';
+
+    if (contentType.includes('multipart/form-data')) {
+      const formData = await req.formData();
+      title = String(formData.get('title') || '').trim();
+      content = String(formData.get('content') || '').trim();
+      category = (formData.get('category') || 'noticia') as PostCategory;
+      linkUrl = String(formData.get('linkUrl') || '').trim();
+
+      const imageEntry = formData.get('image');
+      if (imageEntry && typeof imageEntry === 'object' && 'arrayBuffer' in imageEntry) {
+        const file = imageEntry as File;
+        if (file.size > 0) {
+          if (file.size > 10 * 1024 * 1024) {
+            return NextResponse.json(
+              { ok: false, error: 'La imagen no debe superar los 10 MB.' },
+              { status: 400 }
+            );
+          }
+          const arrBuf = await file.arrayBuffer();
+          photoPayload = {
+            buffer: Buffer.from(arrBuf),
+            filename: file.name || 'comunicado-iujo.jpg',
+            mimeType: file.type || 'image/jpeg',
+          };
+        }
+      }
+    } else {
+      const body = await req.json();
+      title = String(body.title || '').trim();
+      content = String(body.content || '').trim();
+      category = (body.category || 'noticia') as PostCategory;
+      linkUrl = String(body.linkUrl || '').trim();
+    }
 
     if (!title || !content) {
       return NextResponse.json(
@@ -52,7 +91,7 @@ export async function POST(req: NextRequest) {
 
     htmlMessage += `🕒 <i>Publicado: ${dateStr} • Extensión Barquisimeto</i>`;
 
-    const delivery = await broadcastToSubscribers(htmlMessage, 'news');
+    const delivery = await broadcastToSubscribers(htmlMessage, 'news', photoPayload);
 
     const store = readStore();
     const newPost: BroadcastPost = {
@@ -61,6 +100,8 @@ export async function POST(req: NextRequest) {
       category,
       content,
       linkUrl: linkUrl || undefined,
+      hasImage: Boolean(photoPayload),
+      imageName: photoPayload?.filename,
       createdAt: new Date().toISOString(),
       sentCount: delivery.sentCount,
       failedCount: delivery.failedCount,
@@ -84,4 +125,3 @@ export async function POST(req: NextRequest) {
     );
   }
 }
-
