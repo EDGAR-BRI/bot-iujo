@@ -1,0 +1,9 @@
+{
+  "crons": [
+    {
+      "path": "/api/quakes/check",
+      "schedule": "*/5 * * * *"
+    }
+  ]
+}
+

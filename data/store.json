@@ -1,0 +1,33 @@
+{
+  "subscribers": [
+    {
+      "chatId": 6347955788,
+      "username": "edgarbri26",
+      "firstName": "Edgar",
+      "subscribedAt": "2026-11-10T15:12:07.175Z",
+      "active": true,
+      "receiveNews": true,
+      "receiveQuakes": true
+    }
+  ],
+  "posts": [],
+  "quakeConfig": {
+    "enabled": true,
+    "minMagnitude": 3.5,
+    "maxRadiusKm": 250,
+    "centerName": "IUJO Extensión Barquisimeto, Edo. Lara",
+    "latitude": 10.0647,
+    "longitude": -69.357,
+    "autoAlertTelegram": true,
+    "lastCheckedAt": "2026-11-10T15:13:12.665Z"
+  },
+  "notifiedQuakeIds": [],
+  "lastUpdateId": 290058055,
+  "botProfile": {
+    "name": "IUJO Barquisimeto | Alertas",
+    "shortDescription": "Canal oficial de noticias, avisos y alertas sísmicas de IUJO Extensión Barquisimeto (Fe y Alegría).",
+    "description": "👋 ¡Bienvenido al Bot de IUJO Extensión Barquisimeto (Fe y Alegría)!\n\nPor este medio recibirás:\n📢 Noticias y avisos académicos\n🚨 Alertas urgentes de la sede Barquisimeto\n🌍 Alertas sísmicas automáticas con sede en Barquisimeto y el Estado Lara\n\nEnvía /start para suscribirte.",
+    "username": "IUJOBot",
+    "botId": 9204596838
+  }
+}
