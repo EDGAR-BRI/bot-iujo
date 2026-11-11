@@ -2108,6 +2108,53 @@ export default function DashboardPage() {
                 </div>
               </fieldset>
 
+              <fieldset className="mb-5 rounded-[10px] border border-slate-200 p-4">
+                <legend className="px-2 text-sm font-bold text-slate-900">
+                  Menú de Comandos Registrados en Telegram (setMyCommands)
+                </legend>
+                <p className="mb-3 text-xs text-slate-600">
+                  Estos comandos aparecen al pulsar el botón <strong>Menú (/)</strong> dentro del chat del bot en Telegram:
+                </p>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {[
+                    {
+                      cmd: '/start',
+                      desc: 'Suscribirme a noticias y alertas de IUJO Barquisimeto',
+                    },
+                    {
+                      cmd: '/sismos',
+                      desc: 'Ver últimos sismos cercanos a Barquisimeto',
+                    },
+                    {
+                      cmd: '/emergencias',
+                      desc: 'Directorio de emergencias en Barquisimeto y Lara',
+                    },
+                    {
+                      cmd: '/estado',
+                      desc: 'Consultar estado de mi suscripción',
+                    },
+                    {
+                      cmd: '/stop',
+                      desc: 'Pausar notificaciones del bot',
+                    },
+                    {
+                      cmd: '/ayuda',
+                      desc: 'Información de contacto y comandos',
+                    },
+                  ].map((item) => (
+                    <div
+                      key={item.cmd}
+                      className="flex items-start gap-2.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs"
+                    >
+                      <code className="shrink-0 rounded bg-red-100 px-1.5 py-0.5 font-bold text-iujo-dark">
+                        {item.cmd}
+                      </code>
+                      <span className="text-slate-700">{item.desc}</span>
+                    </div>
+                  ))}
+                </div>
+              </fieldset>
+
               <button
                 type="submit"
                 className={primaryBtnClasses}

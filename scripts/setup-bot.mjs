@@ -41,16 +41,24 @@ const descRes = await tgPost('setMyDescription', {
 });
 console.log('setMyDescription:', JSON.stringify(descRes));
 
-const cmdRes = await tgPost('setMyCommands', {
-  commands: [
-    { command: 'start', description: 'Suscribirme a noticias y alertas de IUJO Barquisimeto' },
-    { command: 'sismos', description: 'Ver últimos sismos cercanos a Barquisimeto' },
-    { command: 'emergencias', description: 'Directorio de emergencias en Barquisimeto y Lara' },
-    { command: 'estado', description: 'Consultar estado de mi suscripción' },
-    { command: 'stop', description: 'Pausar notificaciones del bot' },
-    { command: 'ayuda', description: 'Información de contacto y comandos' },
-  ],
+const commands = [
+  { command: 'start', description: 'Suscribirme a noticias y alertas de IUJO Barquisimeto' },
+  { command: 'sismos', description: 'Ver últimos sismos cercanos a Barquisimeto' },
+  { command: 'emergencias', description: 'Directorio de emergencias en Barquisimeto y Lara' },
+  { command: 'estado', description: 'Consultar estado de mi suscripción' },
+  { command: 'stop', description: 'Pausar notificaciones del bot' },
+  { command: 'ayuda', description: 'Información de contacto y comandos' },
+];
+
+const cmdRes = await tgPost('setMyCommands', { commands });
+await tgPost('setMyCommands', { commands, language_code: 'es' });
+await tgPost('setMyCommands', { commands, scope: { type: 'all_private_chats' } });
+await tgPost('setMyCommands', {
+  commands,
+  scope: { type: 'all_private_chats' },
+  language_code: 'es',
 });
+await tgPost('setMyChatMenuButton', { menu_button: { type: 'commands' } });
 console.log('setMyCommands:', JSON.stringify(cmdRes));
 
 const jpgPath = path.join(process.cwd(), 'public', 'iujo-logo.jpg');

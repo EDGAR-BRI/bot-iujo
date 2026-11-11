@@ -69,7 +69,7 @@ export async function telegramCall<T = unknown>(
   return res.json();
 }
 
-const BOT_COMMANDS_VERSION = 2;
+const BOT_COMMANDS_VERSION = 3;
 
 export const BOT_COMMANDS = [
   { command: 'start', description: 'Suscribirme a noticias y alertas de IUJO Barquisimeto' },
@@ -79,6 +79,26 @@ export const BOT_COMMANDS = [
   { command: 'stop', description: 'Pausar notificaciones del bot' },
   { command: 'ayuda', description: 'Información de contacto y comandos' },
 ];
+
+export async function syncBotCommandsMenu(): Promise<{ ok: boolean; description?: string }> {
+  const [defaultRes] = await Promise.all([
+    telegramCall('setMyCommands', { commands: BOT_COMMANDS }),
+    telegramCall('setMyCommands', { commands: BOT_COMMANDS, language_code: 'es' }),
+    telegramCall('setMyCommands', {
+      commands: BOT_COMMANDS,
+      scope: { type: 'all_private_chats' },
+    }),
+    telegramCall('setMyCommands', {
+      commands: BOT_COMMANDS,
+      scope: { type: 'all_private_chats' },
+      language_code: 'es',
+    }),
+    telegramCall('setMyChatMenuButton', {
+      menu_button: { type: 'commands' },
+    }),
+  ]);
+  return defaultRes;
+}
 
 export async function getBotStatus() {
   try {
@@ -115,9 +135,7 @@ export async function getBotStatus() {
     }
 
     if (store.botProfile.commandsVersion !== BOT_COMMANDS_VERSION) {
-      const cmdSync = await telegramCall('setMyCommands', {
-        commands: BOT_COMMANDS,
-      }).catch(() => ({ ok: false }));
+      const cmdSync = await syncBotCommandsMenu().catch(() => ({ ok: false }));
       if (cmdSync.ok) {
         store.botProfile.commandsVersion = BOT_COMMANDS_VERSION;
         storeModified = true;
@@ -188,9 +206,7 @@ export async function customizeBotProfile(
   });
 
   // 4. setMyCommands
-  const cmdRes = await telegramCall('setMyCommands', {
-    commands: BOT_COMMANDS,
-  });
+  const cmdRes = await syncBotCommandsMenu();
   if (cmdRes.ok) {
     nextProfile.commandsVersion = BOT_COMMANDS_VERSION;
   }
