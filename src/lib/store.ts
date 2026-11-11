@@ -45,6 +45,7 @@ export interface BotProfileConfig {
   username?: string;
   botId?: number;
   photoSynced?: boolean;
+  commandsVersion?: number;
   lastSyncedAt?: string;
 }
 

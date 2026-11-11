@@ -69,6 +69,17 @@ export async function telegramCall<T = unknown>(
   return res.json();
 }
 
+const BOT_COMMANDS_VERSION = 2;
+
+export const BOT_COMMANDS = [
+  { command: 'start', description: 'Suscribirme a noticias y alertas de IUJO Barquisimeto' },
+  { command: 'sismos', description: 'Ver últimos sismos cercanos a Barquisimeto' },
+  { command: 'emergencias', description: 'Directorio de emergencias en Barquisimeto y Lara' },
+  { command: 'estado', description: 'Consultar estado de mi suscripción' },
+  { command: 'stop', description: 'Pausar notificaciones del bot' },
+  { command: 'ayuda', description: 'Información de contacto y comandos' },
+];
+
 export async function getBotStatus() {
   try {
     const [meRes, webhookRes] = await Promise.all([
@@ -92,12 +103,28 @@ export async function getBotStatus() {
     }
 
     const store = readStore();
+    let storeModified = false;
+
     if (
       store.botProfile.username !== meRes.result.username ||
       store.botProfile.botId !== meRes.result.id
     ) {
       store.botProfile.username = meRes.result.username;
       store.botProfile.botId = meRes.result.id;
+      storeModified = true;
+    }
+
+    if (store.botProfile.commandsVersion !== BOT_COMMANDS_VERSION) {
+      const cmdSync = await telegramCall('setMyCommands', {
+        commands: BOT_COMMANDS,
+      }).catch(() => ({ ok: false }));
+      if (cmdSync.ok) {
+        store.botProfile.commandsVersion = BOT_COMMANDS_VERSION;
+        storeModified = true;
+      }
+    }
+
+    if (storeModified) {
       writeStore(store);
     }
 
@@ -162,14 +189,11 @@ export async function customizeBotProfile(
 
   // 4. setMyCommands
   const cmdRes = await telegramCall('setMyCommands', {
-    commands: [
-      { command: 'start', description: 'Suscribirme a noticias y alertas de IUJO Barquisimeto' },
-      { command: 'sismos', description: 'Ver últimos sismos cercanos a Barquisimeto' },
-      { command: 'estado', description: 'Consultar estado de mi suscripción' },
-      { command: 'stop', description: 'Pausar notificaciones del bot' },
-      { command: 'ayuda', description: 'Información de contacto y comandos' },
-    ],
+    commands: BOT_COMMANDS,
   });
+  if (cmdRes.ok) {
+    nextProfile.commandsVersion = BOT_COMMANDS_VERSION;
+  }
   steps.push({
     step: 'Menú de Comandos (setMyCommands)',
     ok: cmdRes.ok,
@@ -399,6 +423,31 @@ export interface TelegramUpdate {
   };
 }
 
+export function buildEmergencyDirectoryMessage(): string {
+  return (
+    `🚨 <b>DIRECTORIO DE EMERGENCIAS — BARQUISIMETO Y ESTADO LARA</b>\n` +
+    `<i>IUJO Extensión Barquisimeto (Fe y Alegría)</i>\n\n` +
+    `🆘 <b>Números Nacionales y de Emergencia</b>\n` +
+    `• <b>VEN 9-1-1 (Emergencias generales):</b> 911\n` +
+    `• <b>Línea de Rescate y Emergencia:</b> 0800-RESCATE (0800-7372283)\n` +
+    `• <b>Protección Civil Lara:</b> 0251-2544889 / 0251-2543965 (IG: <a href="https://www.instagram.com/pcivil_venezuela">@pcivil_venezuela</a>)\n\n` +
+    `🚒 <b>Cuerpo de Bomberos (Barquisimeto)</b>\n` +
+    `• <b>Estación Central "Coronel (B) Vicencio Sequera":</b> 0251-2317475\n` +
+    `• <b>Subestación Oeste:</b> 0416-0599572\n` +
+    `• <b>Estación del Sur "Teniente Juan Alvarado":</b> 0251-2320777\n\n` +
+    `🚑 <b>Ambulancias y Atención Médica</b>\n` +
+    `• <b>Atención de Emergencias Barquisimeto / Cabudare</b> <i>(Traslados en Ambulancia y Asistencia Médica a Domicilio)</i>: ☎️ 0414-5338905\n\n` +
+    `🚓 <b>Policías y Cuerpos de Seguridad Local</b>\n` +
+    `• <b>Policía Municipal de Iribarren (PMI) — Comando General:</b> 0251-2550775\n` +
+    `   ◦ Zona Este (Área 1): 0424-5470511\n` +
+    `   ◦ Zona Centro (Área 2): 0426-5143478\n` +
+    `   ◦ Zona Oeste (Área 3): 0426-2663959\n` +
+    `   ◦ Zona Norte (Área 4): 0416-5611697\n` +
+    `• <b>Policía del Estado Lara:</b> 0251-2310111 <i>(Carrera 28 con Calle 30)</i>\n` +
+    `• <b>CICPC (Investigaciones Científicas, Penales y Criminalísticas):</b> 0251-2370511`
+  );
+}
+
 export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void> {
   const msg = update.message;
   if (!msg || !msg.chat) return;
@@ -456,9 +505,15 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
         `• 🌍 Alertas sísmicas automáticas (Sede Barquisimeto, umbral actual: <b>M ≥ ${minMag}</b> en un radio de ${store.quakeConfig.maxRadiusKm} km)\n\n` +
         `📌 <b>Comandos disponibles:</b>\n` +
         `/sismos — Ver últimos sismos detectados cerca de Barquisimeto\n` +
+        `/emergencias — Directorio de teléfonos de emergencia en Barquisimeto y Lara\n` +
         `/estado — Consultar el estado de tu suscripción\n` +
         `/stop — Pausar las notificaciones`
     );
+    return;
+  }
+
+  if (cmd === '/emergencias' || cmd === '/emergencia' || cmd === '/directorio') {
+    await sendTelegramMessage(chat.id, buildEmergencyDirectoryMessage());
     return;
   }
 
@@ -518,6 +573,7 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
     `👋 Hola <b>${displayName}</b>, estás suscrito al canal informativo de <b>IUJO Extensión Barquisimeto</b>.\n\n` +
       `Usa estos comandos:\n` +
       `• /sismos — Consultar actividad sísmica reciente en Lara y alrededores\n` +
+      `• /emergencias — Directorio de teléfonos de emergencia (Bomberos, PC, Ambulancias, Policía)\n` +
       `• /estado — Ver estado de tu suscripción\n` +
       `• /stop — Desactivar notificaciones`
   );

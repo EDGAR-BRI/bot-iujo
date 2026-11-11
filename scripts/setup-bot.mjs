@@ -45,6 +45,7 @@ const cmdRes = await tgPost('setMyCommands', {
   commands: [
     { command: 'start', description: 'Suscribirme a noticias y alertas de IUJO Barquisimeto' },
     { command: 'sismos', description: 'Ver últimos sismos cercanos a Barquisimeto' },
+    { command: 'emergencias', description: 'Directorio de emergencias en Barquisimeto y Lara' },
     { command: 'estado', description: 'Consultar estado de mi suscripción' },
     { command: 'stop', description: 'Pausar notificaciones del bot' },
     { command: 'ayuda', description: 'Información de contacto y comandos' },

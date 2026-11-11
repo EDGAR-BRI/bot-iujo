@@ -253,7 +253,8 @@ export function formatQuakeTelegramAlert(quake: QuakeEvent, isSimulation = false
     `🛰️ <b>Fuente:</b> ${quake.source}\n\n` +
     `🛡️ <b>Protocolo IUJO Barquisimeto:</b>\n` +
     `• Mantén la calma, aléjate de ventanas y objetos que puedan caer.\n` +
-    `• Si estás en los edificios del campus, dirígete a las zonas despejadas de seguridad.\n\n` +
+    `• Si estás en los edificios del campus, dirígete a las zonas despejadas de seguridad.\n` +
+    `• Envía /emergencias para consultar los teléfonos de Bomberos, Protección Civil y Ambulancias en Barquisimeto.\n\n` +
     `🔗 <a href="${mapsLink}">Ver epicentro en el mapa</a>`
   );
 }
