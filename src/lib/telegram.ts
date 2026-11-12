@@ -69,11 +69,12 @@ export async function telegramCall<T = unknown>(
   return res.json();
 }
 
-const BOT_COMMANDS_VERSION = 4;
+const BOT_COMMANDS_VERSION = 5;
 
 export const BOT_COMMANDS = [
   { command: 'start', description: 'Suscribirme a noticias y alertas de IUJO Barquisimeto' },
-  { command: 'guia', description: 'Qué hacer antes, durante y después de un sismo' },
+  { command: 'guia', description: 'Qué hacer antes, durante, después y en pisos altos' },
+  { command: 'pisosaltos', description: 'Protocolo sísmico en pisos altos (IUJO / edificios)' },
   { command: 'sismos', description: 'Ver últimos sismos cercanos a Barquisimeto' },
   { command: 'emergencias', description: 'Directorio de emergencias en Barquisimeto y Lara' },
   { command: 'estado', description: 'Consultar estado de mi suscripción' },
@@ -484,6 +485,19 @@ export function buildQuakeAfterMessage(): string {
   );
 }
 
+export function buildQuakeHighFloorsMessage(): string {
+  return (
+    `🏢 <b>Protocolo en Pisos Altos (IUJO / Edificios)</b>\n\n` +
+    `<b>Protocolo de emergencia en PISOS ALTOS (IUJO y viviendas)</b>\n` +
+    `Si te encuentras en un piso superior al momento de un sismo o terremoto, el movimiento se sentirá más fuerte. Sigue este protocolo estricto:\n\n` +
+    `🔴 <b>DURANTE el sismo (Qué hacer en el momento):</b>\n` +
+    `• <b>NO evacúes mientras tiembla:</b> Está prohibido bajar por las escaleras durante el movimiento; puedes perder el equilibrio y las cajas de escaleras son zonas vulnerables.\n` +
+    `• <b>CERO ascensores:</b> Jamás intentes usar el ascensor; si se corta la electricidad quedarás atrapado.\n` +
+    `• <b>Aléjate de ventanales y fachadas:</b> Los edificios altos oscilan y los vidrios pueden estallar. Mantente lejos de ventanas, estantes o carteleras que puedan caer.\n` +
+    `• <b>Mantén la calma:</b> Es normal escuchar crujidos o sentir que la estructura se balancea; los edificios están diseñados para flexionar y absorber el movimiento.`
+  );
+}
+
 export function buildEmergencyDirectoryMessage(): string {
   return (
     `🚨 <b>DIRECTORIO DE EMERGENCIAS — BARQUISIMETO Y ESTADO LARA</b>\n` +
@@ -510,7 +524,7 @@ export function buildEmergencyDirectoryMessage(): string {
 }
 
 /**
- * Envía una alerta sísmica seguida por mensajes separados de DURANTE, DESPUÉS y el Directorio de Emergencias.
+ * Envía una alerta sísmica seguida por mensajes separados de DURANTE, PISOS ALTOS, DESPUÉS y el Directorio de Emergencias.
  */
 export async function broadcastQuakeAlertSequence(
   alertHtml: string,
@@ -521,6 +535,7 @@ export async function broadcastQuakeAlertSequence(
     [
       alertHtml,
       buildQuakeDuringMessage(),
+      buildQuakeHighFloorsMessage(),
       buildQuakeAfterMessage(),
       buildEmergencyDirectoryMessage(),
     ],
@@ -530,10 +545,11 @@ export async function broadcastQuakeAlertSequence(
 }
 
 async function sendQuakePreventionGuides(chatId: number | string): Promise<void> {
-  // Always send the 3 guides as separate messages
+  // Always send each guide as a separate message
   await sendTelegramMessage(chatId, buildQuakeBeforeMessage());
   await sendTelegramMessage(chatId, buildQuakeDuringMessage());
   await sendTelegramMessage(chatId, buildQuakeAfterMessage());
+  await sendTelegramMessage(chatId, buildQuakeHighFloorsMessage());
 }
 
 export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void> {
@@ -592,7 +608,8 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
         `• 🚨 Avisos preventivos del campus en Barquisimeto\n` +
         `• 🌍 Alertas sísmicas automáticas (Sede Barquisimeto, umbral actual: <b>M ≥ ${minMag}</b> en un radio de ${store.quakeConfig.maxRadiusKm} km)\n\n` +
         `📌 <b>Comandos disponibles:</b>\n` +
-        `/guia — Qué hacer antes, durante y después de un sismo\n` +
+        `/guia — Qué hacer antes, durante, después y en pisos altos\n` +
+        `/pisosaltos — Protocolo sísmico para pisos altos y edificios\n` +
         `/sismos — Ver últimos sismos detectados cerca de Barquisimeto\n` +
         `/emergencias — Directorio de teléfonos de emergencia en Barquisimeto y Lara\n` +
         `/estado — Consultar el estado de tu suscripción\n` +
@@ -605,6 +622,11 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
 
   if (cmd === '/guia' || cmd === '/guias') {
     await sendQuakePreventionGuides(chat.id);
+    return;
+  }
+
+  if (cmd === '/pisosaltos' || cmd === '/pisos' || cmd === '/edificios') {
+    await sendTelegramMessage(chat.id, buildQuakeHighFloorsMessage());
     return;
   }
 
@@ -668,7 +690,8 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
     chat.id,
     `👋 Hola <b>${displayName}</b>, estás suscrito al canal informativo de <b>IUJO Extensión Barquisimeto</b>.\n\n` +
       `Usa estos comandos:\n` +
-      `• /guia — Qué hacer antes, durante y después de un sismo\n` +
+      `• /guia — Qué hacer antes, durante, después y en pisos altos\n` +
+      `• /pisosaltos — Protocolo sísmico en pisos altos (IUJO / edificios)\n` +
       `• /sismos — Consultar actividad sísmica reciente en Lara y alrededores\n` +
       `• /emergencias — Directorio de teléfonos de emergencia (Bomberos, PC, Ambulancias, Policía)\n` +
       `• /estado — Ver estado de tu suscripción\n` +
