@@ -2122,6 +2122,10 @@ export default function DashboardPage() {
                       desc: 'Suscribirme a noticias y alertas de IUJO Barquisimeto',
                     },
                     {
+                      cmd: '/guia',
+                      desc: 'Qué hacer antes, durante y después de un sismo',
+                    },
+                    {
                       cmd: '/sismos',
                       desc: 'Ver últimos sismos cercanos a Barquisimeto',
                     },
