@@ -2123,7 +2123,11 @@ export default function DashboardPage() {
                     },
                     {
                       cmd: '/guia',
-                      desc: 'Qué hacer antes, durante y después de un sismo',
+                      desc: 'Qué hacer antes, durante, después y en pisos altos',
+                    },
+                    {
+                      cmd: '/pisosaltos',
+                      desc: 'Protocolo sísmico en pisos altos (IUJO / edificios)',
                     },
                     {
                       cmd: '/sismos',
