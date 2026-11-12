@@ -69,10 +69,11 @@ export async function telegramCall<T = unknown>(
   return res.json();
 }
 
-const BOT_COMMANDS_VERSION = 3;
+const BOT_COMMANDS_VERSION = 4;
 
 export const BOT_COMMANDS = [
   { command: 'start', description: 'Suscribirme a noticias y alertas de IUJO Barquisimeto' },
+  { command: 'guia', description: 'Qué hacer antes, durante y después de un sismo' },
   { command: 'sismos', description: 'Ver últimos sismos cercanos a Barquisimeto' },
   { command: 'emergencias', description: 'Directorio de emergencias en Barquisimeto y Lara' },
   { command: 'estado', description: 'Consultar estado de mi suscripción' },
@@ -360,10 +361,11 @@ export async function sendTelegramPhoto(
 }
 
 export async function broadcastToSubscribers(
-  htmlMessage: string,
+  htmlMessages: string | string[],
   type: 'news' | 'quakes' = 'news',
   photoPayload?: BroadcastPhotoPayload
 ): Promise<{ sentCount: number; failedCount: number; totalTargets: number }> {
+  const messages = (Array.isArray(htmlMessages) ? htmlMessages : [htmlMessages]).filter(Boolean);
   const store = readStore();
   const targets = store.subscribers.filter((s) => {
     if (!s.active) return false;
@@ -377,20 +379,26 @@ export async function broadcastToSubscribers(
 
   for (const sub of targets) {
     try {
+      const [firstMessage, ...followUpMessages] = messages;
+      if (!firstMessage) continue;
+
       let res: { ok: boolean; error_code?: number; description?: string };
 
       if (photoPayload) {
         const photoSource = cachedFileId || photoPayload;
         // Always send photo and text together in a single Telegram message via sendPhoto caption
-        const photoRes = await sendTelegramPhoto(sub.chatId, photoSource, htmlMessage);
+        const photoRes = await sendTelegramPhoto(sub.chatId, photoSource, firstMessage);
         if (photoRes.fileId) cachedFileId = photoRes.fileId;
         res = photoRes;
       } else {
-        res = await sendTelegramMessage(sub.chatId, htmlMessage);
+        res = await sendTelegramMessage(sub.chatId, firstMessage);
       }
 
       if (res.ok) {
         sentCount++;
+        for (const followUp of followUpMessages) {
+          await sendTelegramMessage(sub.chatId, followUp).catch(() => null);
+        }
       } else {
         failedCount++;
         if (res.error_code === 403) {
@@ -439,6 +447,43 @@ export interface TelegramUpdate {
   };
 }
 
+export function buildQuakeBeforeMessage(): string {
+  return (
+    `🟡 <b>¿Qué hacer ANTES de un sismo?</b>\n` +
+    `Prepararte hoy puede salvar vidas mañana. Sigue estos pasos básicos:\n\n` +
+    `• <b>Identifica zonas seguras:</b> Ubica los lugares más resistentes de tu casa, escuela o trabajo (junto a columnas, muros de carga o debajo de mesas muy firmes) y aléjate de ventanas o espejos.\n` +
+    `• <b>Despeja las salidas:</b> Mantén pasillos y puertas libres de muebles o cajas que puedan bloquear el paso.\n` +
+    `• <b>Asegura objetos pesados:</b> Fija a la pared estantes, televisores y cuadros grandes para que no caigan.\n` +
+    `• <b>Prepara tu mochila de emergencia:</b> Ten a la mano una linterna, radio con pilas, botiquín, agua embotellada, comida enlatada, un silbato y copias de tus documentos importantes.\n` +
+    `• <b>Haz un plan familiar:</b> Acuerda con tu familia un punto de encuentro seguro afuera de casa por si se corta la comunicación.`
+  );
+}
+
+export function buildQuakeDuringMessage(): string {
+  return (
+    `🔴 <b>¿Qué hacer DURANTE un sismo?</b>\n` +
+    `Mantén la calma y actúa rápido siguiendo estas reglas:\n\n` +
+    `• <b>Agáchate, cúbrete y agárrate:</b> Si estás adentro, ponte en el suelo, métete debajo de una mesa resistente y sujétate de ella hasta que pase el movimiento.\n` +
+    `• <b>Aléjate del peligro:</b> Mantente lejos de ventanas, vidrios, vitrinas y objetos que puedan caer.\n` +
+    `• <b>No corras ni uses elevadores:</b> Usa siempre las escaleras y solo sal del edificio si la salida está cerca y es segura.\n` +
+    `• <b>Si estás en la calle:</b> Aléjate de edificios, postes de luz, árboles y cables eléctricos. Ve hacia un espacio abierto.\n` +
+    `• <b>Si vas manejando:</b> Detén el auto en un lugar despejado (lejos de puentes o postes), enciende las luces intermitentes y quédate adentro hasta que deje de temblar.`
+  );
+}
+
+export function buildQuakeAfterMessage(): string {
+  return (
+    `🟢 <b>¿Qué hacer DESPUÉS de un sismo?</b>\n` +
+    `El peligro no termina cuando deja de temblar. Toma estas precauciones:\n\n` +
+    `• <b>Revisa si hay heridos:</b> Ayuda a quienes lo necesiten, pero no muevas a personas con lesiones graves a menos que estén en peligro inmediato.\n` +
+    `• <b>Inspecciona tu entorno:</b> Si notas grietas profundas en las paredes, olor a gas o cables sueltos, sal del lugar de inmediato.\n` +
+    `• <b>Corta los servicios:</b> Si es seguro hacerlo, cierra las llaves de paso del gas y del agua, y baja el interruptor principal de la luz.\n` +
+    `• <b>No enciendas fuego:</b> Evita usar fósforos, encendedores o velas hasta asegurarte de que no hay fugas de gas (usa linternas).\n` +
+    `• <b>Usa el teléfono solo para emergencias:</b> Envía mensajes de texto en lugar de llamar para no saturar las líneas.\n` +
+    `• <b>Prepárate para las réplicas:</b> Mantente alerta y en una zona segura, ya que pueden ocurrir movimientos secundarios.`
+  );
+}
+
 export function buildEmergencyDirectoryMessage(): string {
   return (
     `🚨 <b>DIRECTORIO DE EMERGENCIAS — BARQUISIMETO Y ESTADO LARA</b>\n` +
@@ -462,6 +507,33 @@ export function buildEmergencyDirectoryMessage(): string {
     `• <b>Policía del Estado Lara:</b> 0251-2310111 <i>(Carrera 28 con Calle 30)</i>\n` +
     `• <b>CICPC (Investigaciones Científicas, Penales y Criminalísticas):</b> 0251-2370511`
   );
+}
+
+/**
+ * Envía una alerta sísmica seguida por mensajes separados de DURANTE, DESPUÉS y el Directorio de Emergencias.
+ */
+export async function broadcastQuakeAlertSequence(
+  alertHtml: string,
+  type: 'news' | 'quakes' = 'quakes',
+  photoPayload?: BroadcastPhotoPayload
+): Promise<{ sentCount: number; failedCount: number; totalTargets: number }> {
+  return broadcastToSubscribers(
+    [
+      alertHtml,
+      buildQuakeDuringMessage(),
+      buildQuakeAfterMessage(),
+      buildEmergencyDirectoryMessage(),
+    ],
+    type,
+    photoPayload
+  );
+}
+
+async function sendQuakePreventionGuides(chatId: number | string): Promise<void> {
+  // Always send the 3 guides as separate messages
+  await sendTelegramMessage(chatId, buildQuakeBeforeMessage());
+  await sendTelegramMessage(chatId, buildQuakeDuringMessage());
+  await sendTelegramMessage(chatId, buildQuakeAfterMessage());
 }
 
 export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void> {
@@ -520,11 +592,19 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
         `• 🚨 Avisos preventivos del campus en Barquisimeto\n` +
         `• 🌍 Alertas sísmicas automáticas (Sede Barquisimeto, umbral actual: <b>M ≥ ${minMag}</b> en un radio de ${store.quakeConfig.maxRadiusKm} km)\n\n` +
         `📌 <b>Comandos disponibles:</b>\n` +
+        `/guia — Qué hacer antes, durante y después de un sismo\n` +
         `/sismos — Ver últimos sismos detectados cerca de Barquisimeto\n` +
         `/emergencias — Directorio de teléfonos de emergencia en Barquisimeto y Lara\n` +
         `/estado — Consultar el estado de tu suscripción\n` +
         `/stop — Pausar las notificaciones`
     );
+
+    await sendQuakePreventionGuides(chat.id);
+    return;
+  }
+
+  if (cmd === '/guia' || cmd === '/guias') {
+    await sendQuakePreventionGuides(chat.id);
     return;
   }
 
@@ -588,11 +668,16 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
     chat.id,
     `👋 Hola <b>${displayName}</b>, estás suscrito al canal informativo de <b>IUJO Extensión Barquisimeto</b>.\n\n` +
       `Usa estos comandos:\n` +
+      `• /guia — Qué hacer antes, durante y después de un sismo\n` +
       `• /sismos — Consultar actividad sísmica reciente en Lara y alrededores\n` +
       `• /emergencias — Directorio de teléfonos de emergencia (Bomberos, PC, Ambulancias, Policía)\n` +
       `• /estado — Ver estado de tu suscripción\n` +
       `• /stop — Desactivar notificaciones`
   );
+
+  if (isNew && !cmd.startsWith('/')) {
+    await sendQuakePreventionGuides(chat.id);
+  }
 }
 
 export async function syncTelegramUpdates(): Promise<{

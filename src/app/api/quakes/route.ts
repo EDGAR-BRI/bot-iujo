@@ -7,7 +7,7 @@ import {
   QuakeEvent,
 } from '@/lib/seismic';
 import { BroadcastPost, readStore, writeStore } from '@/lib/store';
-import { broadcastToSubscribers, syncTelegramUpdates } from '@/lib/telegram';
+import { broadcastQuakeAlertSequence, syncTelegramUpdates } from '@/lib/telegram';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,7 +28,7 @@ export async function GET() {
           !store.notifiedQuakeIds.includes(q.id)
         ) {
           const alertHtml = formatQuakeTelegramAlert(q, false);
-          const delivery = await broadcastToSubscribers(alertHtml, 'quakes');
+          const delivery = await broadcastQuakeAlertSequence(alertHtml, 'quakes');
           store.notifiedQuakeIds.push(q.id);
           newlyNotified.push(q);
 
@@ -149,7 +149,7 @@ export async function POST(req: NextRequest) {
     };
 
     const htmlAlert = formatQuakeTelegramAlert(simulatedQuake, true);
-    const delivery = await broadcastToSubscribers(htmlAlert, 'quakes');
+    const delivery = await broadcastQuakeAlertSequence(htmlAlert, 'quakes');
 
     const postRecord: BroadcastPost = {
       id: `post-sim-${Date.now()}`,

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { BroadcastPost, PostCategory, readStore, writeStore } from '@/lib/store';
 import {
   BroadcastPhotoPayload,
+  broadcastQuakeAlertSequence,
   broadcastToSubscribers,
   syncTelegramUpdates,
 } from '@/lib/telegram';
@@ -156,7 +157,10 @@ export async function POST(req: NextRequest) {
 
     htmlMessage += footerHtml;
 
-    const delivery = await broadcastToSubscribers(htmlMessage, 'news', photoPayload);
+    const delivery =
+      category === 'sismo'
+        ? await broadcastQuakeAlertSequence(htmlMessage, 'quakes', photoPayload)
+        : await broadcastToSubscribers(htmlMessage, 'news', photoPayload);
 
     const store = readStore();
     const newPost: BroadcastPost = {
