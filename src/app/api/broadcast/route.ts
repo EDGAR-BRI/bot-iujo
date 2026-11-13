@@ -4,6 +4,7 @@ import {
   BroadcastPhotoPayload,
   broadcastQuakeAlertSequence,
   broadcastToSubscribers,
+  isTelegramConnected,
   syncTelegramUpdates,
 } from '@/lib/telegram';
 
@@ -34,6 +35,17 @@ function truncateUtf16Safe(str: string, maxUnits: number): string {
 
 export async function POST(req: NextRequest) {
   try {
+    if (!isTelegramConnected()) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            'El bot está desconectado de Telegram desde el Dashboard. Activa el switch de conexión para publicar.',
+        },
+        { status: 409 }
+      );
+    }
+
     // First sync any recent /start subscribers before broadcasting
     await syncTelegramUpdates().catch(() => null);
 

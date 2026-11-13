@@ -5,7 +5,6 @@ import {
   Activity,
   AlertTriangle,
   Bell,
-  Bot,
   CheckCircle2,
   ClipboardPaste,
   ExternalLink,
@@ -24,6 +23,8 @@ import {
   Trash2,
   Upload,
   Users,
+  Wifi,
+  WifiOff,
 } from 'lucide-react';
 import {
   BOT_MESSAGE_FIELDS,
@@ -42,6 +43,7 @@ import type { QuakeEvent } from '@/lib/seismic';
 
 interface BotStatusData {
   connected: boolean;
+  manualDisconnect?: boolean;
   error?: string;
   bot?: {
     id: number;
@@ -163,6 +165,11 @@ export default function DashboardPage() {
   const [webhookUrlInput, setWebhookUrlInput] = useState('');
   const [webhookFeedback, setWebhookFeedback] = useState<string | null>(null);
 
+  // Bot connection switch state
+  const [telegramConnected, setTelegramConnected] = useState(true);
+  const [togglingConnection, setTogglingConnection] = useState(false);
+  const [connectionFeedback, setConnectionFeedback] = useState<string | null>(null);
+
   // Bot messages & guides state
   const [botMessages, setBotMessages] = useState<BotMessagesConfig>(DEFAULT_BOT_MESSAGES);
   const [savingMessages, setSavingMessages] = useState(false);
@@ -246,6 +253,9 @@ export default function DashboardPage() {
             ...DEFAULT_BOT_MESSAGES,
             ...data.botMessages,
           });
+        }
+        if (typeof data.telegramConnected === 'boolean') {
+          setTelegramConnected(data.telegramConnected);
         }
         if (data.botStatus?.webhook?.url) {
           setWebhookUrlInput(data.botStatus.webhook.url);
@@ -890,6 +900,38 @@ export default function DashboardPage() {
     }
   }
 
+  async function handleToggleTelegramConnection(
+    nextConnected: boolean,
+    releaseWebhook = false
+  ) {
+    setTogglingConnection(true);
+    setConnectionFeedback(null);
+    try {
+      const res = await fetch('/api/bot/connection', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          connected: nextConnected,
+          releaseWebhook,
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setTelegramConnected(Boolean(data.connected));
+        if (data.botStatus) setBotStatus(data.botStatus);
+        if (data.webhookReleased) setWebhookUrlInput('');
+        setConnectionFeedback(data.message || null);
+        await loadDashboard(true);
+      } else {
+        setConnectionFeedback(data.error || 'No se pudo cambiar el estado de conexión.');
+      }
+    } catch {
+      setConnectionFeedback('Error de red cambiando la conexión con Telegram.');
+    } finally {
+      setTogglingConnection(false);
+    }
+  }
+
   async function handleLogout() {
     await fetch('/api/auth/logout', { method: 'POST' }).catch(() => null);
     window.location.href = '/login';
@@ -1022,21 +1064,114 @@ export default function DashboardPage() {
           </span>
         </div>
 
-        <div className="flex flex-col gap-1.5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
-            <Bot size={18} className="text-green-700" aria-hidden="true" />
-            Modo de Recepción Telegram
+        <div
+          className={`flex flex-col gap-1.5 rounded-2xl border p-5 shadow-sm transition-colors ${
+            telegramConnected
+              ? 'border-slate-200 bg-white'
+              : 'border-red-300 bg-red-50/60'
+          }`}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+              {telegramConnected ? (
+                <Wifi size={18} className="text-green-700" aria-hidden="true" />
+              ) : (
+                <WifiOff size={18} className="text-red-700" aria-hidden="true" />
+              )}
+              Conexión Telegram
+            </span>
+
+            <button
+              type="button"
+              role="switch"
+              aria-checked={telegramConnected}
+              aria-label={
+                telegramConnected
+                  ? 'Desconectar bot de Telegram'
+                  : 'Conectar bot a Telegram'
+              }
+              disabled={togglingConnection}
+              onClick={() => handleToggleTelegramConnection(!telegramConnected)}
+              className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-[#0b57d0] disabled:cursor-not-allowed disabled:opacity-60 ${
+                telegramConnected ? 'bg-emerald-600' : 'bg-slate-400'
+              }`}
+            >
+              <span
+                aria-hidden="true"
+                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+                  telegramConnected ? 'translate-x-5' : 'translate-x-0.5'
+                }`}
+              />
+            </button>
+          </div>
+
+          <span
+            className={`text-2xl font-extrabold ${
+              telegramConnected ? 'text-slate-900' : 'text-red-800'
+            }`}
+          >
+            {!telegramConnected
+              ? 'Desconectado'
+              : botStatus.webhook?.url
+              ? 'Webhook (Vercel)'
+              : 'Polling Activo'}
           </span>
-          <span className="text-2xl font-extrabold text-slate-900">
-            {botStatus.webhook?.url ? 'Webhook (Vercel)' : 'Polling Activo'}
-          </span>
+
           <span className="text-xs text-slate-600">
-            {botStatus.connected
+            {!telegramConnected
+              ? 'Sin conexión (manual) • No responde ni envía mensajes'
+              : botStatus.connected
               ? `ID: ${botStatus.bot?.id} • Listo para enviar`
               : botStatus.error || 'Verificando token en .env'}
           </span>
         </div>
       </section>
+
+      {(!telegramConnected || connectionFeedback) && (
+        <section
+          className={`mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-5 py-3.5 text-sm shadow-sm ${
+            !telegramConnected
+              ? 'border-amber-300 bg-amber-50 text-amber-950'
+              : 'border-emerald-200 bg-emerald-50 text-emerald-900'
+          }`}
+          role="status"
+        >
+          <div className="flex items-center gap-2.5 font-medium">
+            {!telegramConnected ? (
+              <WifiOff size={18} className="shrink-0 text-amber-700" aria-hidden="true" />
+            ) : (
+              <CheckCircle2 size={18} className="shrink-0 text-emerald-700" aria-hidden="true" />
+            )}
+            <span>
+              {!telegramConnected
+                ? 'Modo sin conexión activo: esta instancia no consultará ni enviará mensajes a Telegram. Ideal para probar desde tu entorno local sin conflictos.'
+                : connectionFeedback}
+            </span>
+          </div>
+
+          {!telegramConnected && (
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={togglingConnection}
+                onClick={() => handleToggleTelegramConnection(false, true)}
+                className={secondaryBtnClasses}
+              >
+                Liberar Webhook (para Polling local)
+              </button>
+              <button
+                type="button"
+                disabled={togglingConnection}
+                onClick={() => handleToggleTelegramConnection(true)}
+                className={primaryBtnClasses}
+              >
+                <Wifi size={16} aria-hidden="true" />
+                Reconectar ahora
+              </button>
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Navigation Tabs */}
       <nav

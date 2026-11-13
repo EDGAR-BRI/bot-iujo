@@ -57,10 +57,26 @@ function getApiBase(): string {
   return `https://api.telegram.org/bot${getBotToken()}`;
 }
 
+export function isTelegramConnected(): boolean {
+  return readStore().telegramConnected !== false;
+}
+
+const DISCONNECTED_ERROR =
+  'Bot desconectado manualmente desde el Dashboard (modo sin conexión).';
+
 export async function telegramCall<T = unknown>(
   method: string,
-  body?: Record<string, unknown>
+  body?: Record<string, unknown>,
+  force = false
 ): Promise<{ ok: boolean; result?: T; description?: string; error_code?: number }> {
+  if (!force && !isTelegramConnected()) {
+    return {
+      ok: false,
+      error_code: 503,
+      description: DISCONNECTED_ERROR,
+    };
+  }
+
   const res = await fetch(`${getApiBase()}/${method}`, {
     method: body ? 'POST' : 'GET',
     headers: body ? { 'Content-Type': 'application/json' } : undefined,
@@ -104,6 +120,14 @@ export async function syncBotCommandsMenu(): Promise<{ ok: boolean; description?
 }
 
 export async function getBotStatus() {
+  if (!isTelegramConnected()) {
+    return {
+      connected: false,
+      manualDisconnect: true,
+      error: DISCONNECTED_ERROR,
+    };
+  }
+
   try {
     const [meRes, webhookRes] = await Promise.all([
       telegramCall<{
@@ -175,6 +199,20 @@ export async function customizeBotProfile(
     ...store.botProfile,
     ...(profileInput || {}),
   };
+
+  if (!isTelegramConnected()) {
+    return {
+      ok: false,
+      steps: [
+        {
+          step: 'Conexión con Telegram',
+          ok: false,
+          detail: DISCONNECTED_ERROR,
+        },
+      ],
+      profile: nextProfile,
+    };
+  }
 
   const steps: { step: string; ok: boolean; detail?: string }[] = [];
 
@@ -327,6 +365,14 @@ export async function sendTelegramPhoto(
   description?: string;
   fileId?: string;
 }> {
+  if (!isTelegramConnected()) {
+    return {
+      ok: false,
+      error_code: 503,
+      description: DISCONNECTED_ERROR,
+    };
+  }
+
   if (typeof photo === 'string') {
     const res = await telegramCall<{
       photo?: { file_id: string }[];
@@ -383,6 +429,14 @@ export async function broadcastToSubscribers(
     if (!s.active) return false;
     return type === 'quakes' ? s.receiveQuakes !== false : s.receiveNews !== false;
   });
+
+  if (!isTelegramConnected()) {
+    return {
+      sentCount: 0,
+      failedCount: targets.length,
+      totalTargets: targets.length,
+    };
+  }
 
   let sentCount = 0;
   let failedCount = 0;
@@ -515,6 +569,8 @@ async function sendQuakePreventionGuides(chatId: number | string): Promise<void>
 }
 
 export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void> {
+  if (!isTelegramConnected()) return;
+
   const msg = update.message;
   if (!msg || !msg.chat) return;
 
@@ -669,9 +725,18 @@ export async function syncTelegramUpdates(): Promise<{
   processed: number;
   activeSubscribers: number;
   totalSubscribers: number;
-  mode: 'webhook' | 'polling';
+  mode: 'webhook' | 'polling' | 'disconnected';
 }> {
   const store = readStore();
+
+  if (store.telegramConnected === false) {
+    return {
+      processed: 0,
+      activeSubscribers: store.subscribers.filter((s) => s.active).length,
+      totalSubscribers: store.subscribers.length,
+      mode: 'disconnected',
+    };
+  }
 
   // Check if webhook is set; if not, poll getUpdates
   const webhookInfo = await telegramCall<{ url: string }>('getWebhookInfo');

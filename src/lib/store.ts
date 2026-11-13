@@ -60,6 +60,7 @@ export interface StoreData {
   lastUpdateId: number;
   botProfile: BotProfileConfig;
   botMessages: BotMessagesConfig;
+  telegramConnected: boolean;
 }
 
 const DEFAULT_STORE: StoreData = {
@@ -84,6 +85,7 @@ const DEFAULT_STORE: StoreData = {
       '👋 ¡Bienvenido al Bot de IUJO Extensión Barquisimeto (Fe y Alegría)!\n\nPor este medio recibirás:\n📢 Noticias y avisos académicos\n🚨 Alertas urgentes de la sede Barquisimeto\n🌍 Alertas sísmicas automáticas con sede en Barquisimeto y el Estado Lara\n\nEnvía /start para suscribirte.',
   },
   botMessages: DEFAULT_BOT_MESSAGES,
+  telegramConnected: true,
 };
 
 function getStorePath(): string {
@@ -143,6 +145,8 @@ export function readStore(): StoreData {
       subscribers: Array.isArray(parsed.subscribers) ? parsed.subscribers : [],
       posts: Array.isArray(parsed.posts) ? parsed.posts : [],
       notifiedQuakeIds: Array.isArray(parsed.notifiedQuakeIds) ? parsed.notifiedQuakeIds : [],
+      telegramConnected:
+        typeof parsed.telegramConnected === 'boolean' ? parsed.telegramConnected : true,
     };
   } catch {
     return structuredClone(DEFAULT_STORE);

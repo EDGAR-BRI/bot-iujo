@@ -1,10 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { handleTelegramUpdate, TelegramUpdate } from '@/lib/telegram';
+import {
+  handleTelegramUpdate,
+  isTelegramConnected,
+  TelegramUpdate,
+} from '@/lib/telegram';
 import { GET as checkQuakesGET } from '@/app/api/quakes/route';
 import { readStore } from '@/lib/store';
 
 export async function POST(req: NextRequest) {
   try {
+    if (!isTelegramConnected()) {
+      return NextResponse.json({
+        ok: true,
+        skipped: true,
+        reason: 'bot_disconnected',
+      });
+    }
+
     const update = (await req.json()) as TelegramUpdate;
     await handleTelegramUpdate(update);
 

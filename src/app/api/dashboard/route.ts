@@ -34,6 +34,7 @@ export async function GET() {
       quakeConfig: store.quakeConfig,
       botProfile: store.botProfile,
       botMessages: store.botMessages,
+      telegramConnected: store.telegramConnected,
     });
   } catch (err) {
     return NextResponse.json(

@@ -20,7 +20,7 @@ export async function GET() {
     const cutoffRecent = Date.now() - 12 * 60 * 60 * 1000;
     const newlyNotified: QuakeEvent[] = [];
 
-    if (store.quakeConfig.enabled && store.quakeConfig.autoAlertTelegram) {
+    if (store.quakeConfig.enabled && store.quakeConfig.autoAlertTelegram && store.telegramConnected !== false) {
       for (const q of quakes) {
         if (
           q.magnitude >= store.quakeConfig.minMagnitude &&
@@ -116,6 +116,18 @@ export async function PUT(req: NextRequest) {
 // POST: Simulate a seismic alert in Barquisimeto to test Telegram notification with configured magnitude N
 export async function POST(req: NextRequest) {
   try {
+    const preStore = readStore();
+    if (preStore.telegramConnected === false) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            'El bot está desconectado de Telegram desde el Dashboard. Activa el switch de conexión para ejecutar el simulacro.',
+        },
+        { status: 409 }
+      );
+    }
+
     await syncTelegramUpdates().catch(() => null);
 
     const body = await req.json().catch(() => ({}));

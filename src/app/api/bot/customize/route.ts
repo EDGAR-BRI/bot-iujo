@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   BroadcastPhotoPayload,
   customizeBotProfile,
+  isTelegramConnected,
   telegramCall,
 } from '@/lib/telegram';
 
@@ -51,11 +52,21 @@ export async function POST(req: NextRequest) {
     if (body.action === 'setWebhook') {
       const webhookUrl = String(body.webhookUrl || '').trim();
       if (!webhookUrl) {
-        const delRes = await telegramCall('deleteWebhook');
+        const delRes = await telegramCall('deleteWebhook', undefined, true);
         return NextResponse.json({
           ok: delRes.ok,
           message: 'Webhook eliminado. El bot ahora funciona por Polling automático.',
         });
+      }
+      if (!isTelegramConnected()) {
+        return NextResponse.json(
+          {
+            ok: false,
+            description:
+              'El bot está desconectado de Telegram. Activa el switch de conexión primero.',
+          },
+          { status: 409 }
+        );
       }
       const setRes = await telegramCall('setWebhook', {
         url: webhookUrl,
