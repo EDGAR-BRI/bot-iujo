@@ -12,8 +12,11 @@ import {
   ImagePlus,
   LogOut,
   Megaphone,
+  MessageSquareText,
   Radio,
   RefreshCw,
+  RotateCcw,
+  Save,
   Send,
   Settings,
   ShieldAlert,
@@ -22,6 +25,12 @@ import {
   Upload,
   Users,
 } from 'lucide-react';
+import {
+  BOT_MESSAGE_FIELDS,
+  BotMessageKey,
+  BotMessagesConfig,
+  DEFAULT_BOT_MESSAGES,
+} from '@/lib/bot-messages';
 import type {
   BotProfileConfig,
   BroadcastPost,
@@ -54,9 +63,42 @@ const primaryBtnClasses =
 const secondaryBtnClasses =
   'inline-flex min-h-[48px] items-center justify-center gap-2 rounded-[10px] border border-slate-300 bg-slate-100 px-4 py-2.5 text-sm font-semibold text-slate-900 transition-colors hover:bg-slate-200 focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-[#0b57d0] disabled:cursor-not-allowed disabled:opacity-60';
 
+function renderTelegramHtmlPreview(text: string): React.ReactNode {
+  const tokenRegex = /(<b>[\s\S]*?<\/b>|<i>[\s\S]*?<\/i>|<a\s+href=["'][^"']+["'][\s\S]*?>[\s\S]*?<\/a>)/gi;
+  const parts = text.split(tokenRegex);
+
+  return parts.map((part, idx) => {
+    const boldMatch = part.match(/^<b>([\s\S]*?)<\/b>$/i);
+    if (boldMatch) {
+      return <strong key={idx}>{boldMatch[1]}</strong>;
+    }
+    const italicMatch = part.match(/^<i>([\s\S]*?)<\/i>$/i);
+    if (italicMatch) {
+      return <em key={idx}>{italicMatch[1]}</em>;
+    }
+    const linkMatch = part.match(/^<a\s+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>$/i);
+    if (linkMatch) {
+      const href = linkMatch[1];
+      const safeHref = /^https?:\/\//i.test(href) ? href : '#';
+      return (
+        <a
+          key={idx}
+          href={safeHref}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-sky-700 underline"
+        >
+          {linkMatch[2]}
+        </a>
+      );
+    }
+    return <React.Fragment key={idx}>{part}</React.Fragment>;
+  });
+}
+
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<
-    'broadcast' | 'seismic' | 'subscribers' | 'customize'
+    'broadcast' | 'seismic' | 'subscribers' | 'messages' | 'customize'
   >('broadcast');
 
   // Dashboard state
@@ -120,6 +162,14 @@ export default function DashboardPage() {
   const botPhotoInputRef = useRef<HTMLInputElement>(null);
   const [webhookUrlInput, setWebhookUrlInput] = useState('');
   const [webhookFeedback, setWebhookFeedback] = useState<string | null>(null);
+
+  // Bot messages & guides state
+  const [botMessages, setBotMessages] = useState<BotMessagesConfig>(DEFAULT_BOT_MESSAGES);
+  const [savingMessages, setSavingMessages] = useState(false);
+  const [messagesFeedback, setMessagesFeedback] = useState<{
+    type: 'success' | 'error';
+    text: string;
+  } | null>(null);
 
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -190,6 +240,12 @@ export default function DashboardPage() {
             ...prev,
             ...data.botProfile,
           }));
+        }
+        if (data.botMessages) {
+          setBotMessages({
+            ...DEFAULT_BOT_MESSAGES,
+            ...data.botMessages,
+          });
         }
         if (data.botStatus?.webhook?.url) {
           setWebhookUrlInput(data.botStatus.webhook.url);
@@ -760,6 +816,80 @@ export default function DashboardPage() {
     }
   }
 
+  async function handleSaveBotMessages(e: React.FormEvent) {
+    e.preventDefault();
+    setSavingMessages(true);
+    setMessagesFeedback(null);
+
+    try {
+      const res = await fetch('/api/bot/messages', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(botMessages),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        if (data.messages) setBotMessages(data.messages);
+        setMessagesFeedback({
+          type: 'success',
+          text: data.message || 'Mensajes guardados correctamente.',
+        });
+      } else {
+        setMessagesFeedback({
+          type: 'error',
+          text: data.error || 'No se pudieron guardar los mensajes.',
+        });
+      }
+    } catch {
+      setMessagesFeedback({
+        type: 'error',
+        text: 'Error de red guardando los mensajes del bot.',
+      });
+    } finally {
+      setSavingMessages(false);
+    }
+  }
+
+  function handleResetSingleMessage(key: BotMessageKey) {
+    setBotMessages((prev) => ({
+      ...prev,
+      [key]: DEFAULT_BOT_MESSAGES[key],
+    }));
+    setMessagesFeedback(null);
+  }
+
+  async function handleResetAllMessages() {
+    setSavingMessages(true);
+    setMessagesFeedback(null);
+    try {
+      const res = await fetch('/api/bot/messages', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reset' }),
+      });
+      const data = await res.json();
+      if (data.ok && data.messages) {
+        setBotMessages(data.messages);
+        setMessagesFeedback({
+          type: 'success',
+          text: data.message || 'Mensajes restaurados a sus valores originales.',
+        });
+      } else {
+        setMessagesFeedback({
+          type: 'error',
+          text: data.error || 'No se pudieron restaurar los mensajes.',
+        });
+      }
+    } catch {
+      setMessagesFeedback({
+        type: 'error',
+        text: 'Error de red restaurando los mensajes.',
+      });
+    } finally {
+      setSavingMessages(false);
+    }
+  }
+
   async function handleLogout() {
     await fetch('/api/auth/logout', { method: 'POST' }).catch(() => null);
     window.location.href = '/login';
@@ -931,6 +1061,11 @@ export default function DashboardPage() {
               id: 'subscribers',
               label: `Usuarios Suscritos (${activeSubscribersCount})`,
               icon: <Users size={18} aria-hidden="true" />,
+            },
+            {
+              id: 'messages',
+              label: 'Mensajes y Guías',
+              icon: <MessageSquareText size={18} aria-hidden="true" />,
             },
             {
               id: 'customize',
@@ -1870,7 +2005,191 @@ export default function DashboardPage() {
         </section>
       )}
 
-      {/* TAB 4: BOT CUSTOMIZATION & VERCEL DEPLOYMENT */}
+      {/* TAB 4: EDITABLE BOT MESSAGES & PROTOCOLS */}
+      {activeTab === 'messages' && (
+        <form onSubmit={handleSaveBotMessages} className="space-y-6">
+          <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <h2 className="mb-1 flex items-center gap-2 text-lg font-bold text-slate-900">
+                  <MessageSquareText
+                    size={20}
+                    className="text-iujo-red"
+                    aria-hidden="true"
+                  />
+                  Editor de Guías Sísmicas y Directorio de Emergencias
+                </h2>
+                <p className="text-sm text-slate-600">
+                  Edita los 5 mensajes independientes que envía el bot en{' '}
+                  <code className="rounded bg-slate-100 px-1 py-0.5 text-xs">/start</code>,{' '}
+                  <code className="rounded bg-slate-100 px-1 py-0.5 text-xs">/guia</code>,{' '}
+                  <code className="rounded bg-slate-100 px-1 py-0.5 text-xs">/pisosaltos</code>,{' '}
+                  <code className="rounded bg-slate-100 px-1 py-0.5 text-xs">/emergencias</code> y
+                  durante una <strong className="text-slate-900">alerta sísmica</strong>.
+                </p>
+                <p className="mt-2 text-xs text-slate-500">
+                  Soporta etiquetas HTML de Telegram:{' '}
+                  <code className="rounded bg-slate-100 px-1 py-0.5">&lt;b&gt;negrita&lt;/b&gt;</code>
+                  ,{' '}
+                  <code className="rounded bg-slate-100 px-1 py-0.5">&lt;i&gt;cursiva&lt;/i&gt;</code>{' '}
+                  y{' '}
+                  <code className="rounded bg-slate-100 px-1 py-0.5">
+                    &lt;a href=&quot;https://...&quot;&gt;enlace&lt;/a&gt;
+                  </code>
+                  . Cada bloque se envía como un mensaje separado (máx. 4096 caracteres).
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={handleResetAllMessages}
+                  disabled={savingMessages}
+                  className={secondaryBtnClasses}
+                >
+                  <RotateCcw size={16} aria-hidden="true" />
+                  Restaurar Todos
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingMessages}
+                  className={primaryBtnClasses}
+                >
+                  <Save size={18} aria-hidden="true" />
+                  {savingMessages ? 'Guardando...' : 'Guardar Cambios'}
+                </button>
+              </div>
+            </div>
+
+            {messagesFeedback && (
+              <div
+                className={`mt-4 flex items-center gap-2.5 rounded-[10px] border p-3.5 text-sm font-medium ${
+                  messagesFeedback.type === 'success'
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                    : 'border-red-200 bg-red-50 text-red-900'
+                }`}
+                role="status"
+              >
+                {messagesFeedback.type === 'success' ? (
+                  <CheckCircle2 size={18} className="shrink-0" aria-hidden="true" />
+                ) : (
+                  <AlertTriangle size={18} className="shrink-0" aria-hidden="true" />
+                )}
+                <span>{messagesFeedback.text}</span>
+              </div>
+            )}
+          </section>
+
+          {BOT_MESSAGE_FIELDS.map((field) => {
+            const value = botMessages[field.key] || '';
+            const isOverLimit = value.length > 4096;
+            const isModified = value.trim() !== DEFAULT_BOT_MESSAGES[field.key].trim();
+
+            return (
+              <section
+                key={field.key}
+                className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
+              >
+                <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">{field.title}</h3>
+                    <p className="mt-0.5 text-xs text-slate-600">{field.hint}</p>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {field.usedIn.map((tag) => (
+                        <span
+                          key={tag}
+                          className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-semibold text-slate-700"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={`text-xs font-semibold ${
+                        isOverLimit ? 'text-red-700' : 'text-slate-500'
+                      }`}
+                    >
+                      {value.length} / 4096
+                    </span>
+                    {isModified && (
+                      <button
+                        type="button"
+                        onClick={() => handleResetSingleMessage(field.key)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-100"
+                      >
+                        <RotateCcw size={13} aria-hidden="true" />
+                        Restaurar original
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
+                  <div className="lg:col-span-7">
+                    <label
+                      htmlFor={`msg-${field.key}`}
+                      className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-600"
+                    >
+                      Texto del mensaje (HTML Telegram)
+                    </label>
+                    <textarea
+                      id={`msg-${field.key}`}
+                      rows={field.rows}
+                      required
+                      maxLength={4096}
+                      value={value}
+                      onChange={(e) => {
+                        const nextVal = e.target.value;
+                        setBotMessages((prev) => ({
+                          ...prev,
+                          [field.key]: nextVal,
+                        }));
+                      }}
+                      className={`${inputClasses} resize-y font-sans text-sm leading-relaxed`}
+                    />
+                  </div>
+
+                  <div className="lg:col-span-5">
+                    <span className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-600">
+                      Vista previa en Telegram
+                    </span>
+                    <div className="rounded-xl bg-[#e6ebee] p-3.5">
+                      <div className="whitespace-pre-wrap break-words rounded-xl rounded-tl-sm bg-white px-3.5 py-3 text-[13px] leading-relaxed text-slate-900 shadow-sm">
+                        {renderTelegramHtmlPreview(value)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            );
+          })}
+
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            <button
+              type="button"
+              onClick={handleResetAllMessages}
+              disabled={savingMessages}
+              className={secondaryBtnClasses}
+            >
+              <RotateCcw size={16} aria-hidden="true" />
+              Restaurar Todos por Defecto
+            </button>
+            <button
+              type="submit"
+              disabled={savingMessages}
+              className={primaryBtnClasses}
+            >
+              <Save size={18} aria-hidden="true" />
+              {savingMessages ? 'Guardando...' : 'Guardar Todos los Mensajes'}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {/* TAB 5: BOT CUSTOMIZATION & VERCEL DEPLOYMENT */}
       {activeTab === 'customize' && (
         <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
           <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm lg:col-span-7">

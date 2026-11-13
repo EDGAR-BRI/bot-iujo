@@ -33,6 +33,7 @@ export async function GET() {
       posts: store.posts,
       quakeConfig: store.quakeConfig,
       botProfile: store.botProfile,
+      botMessages: store.botMessages,
     });
   } catch (err) {
     return NextResponse.json(
