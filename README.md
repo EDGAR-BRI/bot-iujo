@@ -5,7 +5,7 @@ Aplicación Full-Stack en **Next.js (App Router)** lista para desplegar en **Ver
 ## Características Principales
 
 1. **Personalización Automática del Bot de Telegram (`/api/bot/customize`)**:
-   - Configura nombre, biografía corta, descripción de bienvenida, menú de comandos (`/start`, `/sismos`, `/emergencias`, `/estado`, `/stop`, `/ayuda`) y sube la **foto de perfil oficial de IUJO Extensión Barquisimeto** (`public/iujo-logo.jpg`) usando `setMyProfilePhoto`.
+   - Configura nombre, biografía corta, descripción de bienvenida, menú de comandos (`/start`, `/guia`, `/pisosaltos`, `/sismos`, `/emergencias`, `/estado`, `/stop`, `/ayuda`) y sube la **foto de perfil oficial de IUJO Extensión Barquisimeto** (`public/iujo-logo.jpg`) usando `setMyProfilePhoto`.
 2. **Gestión y Conteo de Usuarios Suscritos (`/api/dashboard`)**:
    - Registro automático cuando cualquier usuario envía `/start` al bot.
    - Panel con contador en tiempo real y directorio de suscriptores activos.

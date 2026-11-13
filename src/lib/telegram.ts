@@ -95,7 +95,7 @@ export async function syncBotCommandsMenu(): Promise<{ ok: boolean; description?
       scope: { type: 'all_private_chats' },
       language_code: 'es',
     }),
-    telegramCall('setMyChatMenuButton', {
+    telegramCall('setChatMenuButton', {
       menu_button: { type: 'commands' },
     }),
   ]);
